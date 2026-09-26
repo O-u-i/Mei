@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei skill registry entry v0.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "path", "status", "description"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
+    "path": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "candidate", "archived"]},
+    "description": {"type": "string", "minLength": 1, "maxLength": 300}
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei trajectory v0.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "completed_at", "project", "task_type", "goal", "initial_context", "actions", "corrections", "result", "evaluation", "lessons", "memory_candidates", "skill_candidates"],
+  "properties": {
+    "schema_version": {"const": "v0.0.0"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "project": {"type": "string", "minLength": 1, "maxLength": 100},
+    "task_type": {"type": "string", "minLength": 1, "maxLength": 80},
+    "goal": {"$ref": "#/$defs/summary"},
+    "initial_context": {"$ref": "#/$defs/summary"},
+    "skills_used": {"type": "array", "items": {"type": "string", "maxLength": 100}, "uniqueItems": true},
+    "tools_used": {"type": "array", "items": {"type": "string", "maxLength": 100}, "uniqueItems": true},
+    "actions": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 30},
+    "errors": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 20},
+    "corrections": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 20},
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "summary", "evidence"],
+      "properties": {
+        "status": {"enum": ["completed", "partial", "failed"]},
+        "summary": {"$ref": "#/$defs/summary"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 20}
+      }
+    },
+    "evaluation": {"$ref": "#/$defs/summary"},
+    "lessons": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 20},
+    "memory_candidates": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 20},
+    "skill_candidates": {"type": "array", "items": {"$ref": "#/$defs/summary"}, "maxItems": 10}
+  },
+  "$defs": {"summary": {"type": "string", "minLength": 1, "maxLength": 2000}}
+}

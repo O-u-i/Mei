@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei memory v0.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "category", "status", "scope", "claim", "provenance", "verified_at"],
+  "properties": {
+    "schema_version": {"const": "v0.0.0"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
+    "category": {"enum": ["profile", "preferences", "domain", "procedural"]},
+    "status": {"enum": ["candidate", "canonical", "archived"]},
+    "scope": {"type": "string", "minLength": 1, "maxLength": 500},
+    "claim": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "provenance": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source", "locator", "evidence_type"],
+        "properties": {
+          "source": {"type": "string", "minLength": 1, "maxLength": 500},
+          "locator": {"type": "string", "minLength": 1, "maxLength": 500},
+          "evidence_type": {"enum": ["current_file", "prior_memory", "trajectory", "user_decision", "test_result"]}
+        }
+      }
+    },
+    "verified_at": {"type": ["string", "null"], "format": "date-time"},
+    "conflicts": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "notes": {"type": "string", "maxLength": 1000}
+  }
+}

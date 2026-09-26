@@ -1,0 +1,11 @@
+# The initializer writes paths.toml with absolute paths for this machine.
+# This template contains no installation-specific values.
+[paths]
+mei_root = "<absolute-path-to-Mei-checkout>"
+codex_home = "<absolute-path-to-personal-Codex-directory>"
+skills_root = "<absolute-path-to-personal-Codex-skills>"
+inbox = "<absolute-path-to-Mei-inbox>"
+
+[profiles]
+project = "mei-project"
+maintainer = "mei-maintainer"

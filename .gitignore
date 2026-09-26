@@ -1,0 +1,40 @@
+# Runtime and machine-specific configuration
+AGENTS.md
+__pycache__/
+.pytest_cache/
+*.pyc
+.codex/*.toml
+!.codex/*.example.toml
+local/*
+!local/*.example.toml
+
+# Local registries are generated for this installation.
+registry/*.yaml
+!registry/*.example.yaml
+
+# Private experience data stays in this checkout only.
+memory/candidates/*
+!memory/candidates/.gitkeep
+memory/archive/*
+!memory/archive/.gitkeep
+memory/episodic/*
+!memory/episodic/.gitkeep
+memory/canonical/*/*
+!memory/canonical/*/.gitkeep
+trajectories/*/*
+!trajectories/*/.gitkeep
+skills/candidates/*
+!skills/candidates/.gitkeep
+skills/archive/*
+!skills/archive/.gitkeep
+
+# Local evaluation output and logs
+evals/cases/*
+!evals/cases/.gitkeep
+!evals/cases/synthetic-task.json
+evals/datasets/*
+!evals/datasets/.gitkeep
+evals/reports/*
+!evals/reports/.gitkeep
+logs/*
+!logs/.gitkeep

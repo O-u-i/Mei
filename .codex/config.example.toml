@@ -1,0 +1,3 @@
+# Optional checkout-level default. Copy to config.toml only if appropriate
+# for your local Codex setup; config.toml is ignored by Git.
+default_permissions = ":read-only"

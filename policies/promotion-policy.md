@@ -1,0 +1,5 @@
+# Promotion policy
+
+Only a deliberately invoked Curator using `mei-maintainer` may promote memory. For each trajectory: validate JSON and privacy; normalize; read the evidence; compare candidate scope and claim against canonical records; check duplicate IDs and semantic conflicts; record the review decision. The Curator may use Codex to draft, but a human-owned Curator task makes the decision.
+
+For a new record, first write `memory/candidates/<id>.json` with `verified_at: null`. Promotion changes its status to `canonical`, sets the verification timestamp, and writes it under the matching `memory/canonical/<category>` directory only after source checks pass. Move the reviewed candidate's one explicit file to `memory/archive` with status `archived` and preserve its provenance; never erase an unresolved conflict. Rebuild the registry and run repository validation. Move a processed trajectory one explicitly named file at a time. Re-running normalization or registry generation must not silently overwrite conflicting content.

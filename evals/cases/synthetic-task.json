@@ -1,0 +1,23 @@
+{
+  "schema_version": "v0.0.0",
+  "id": "synthetic-task",
+  "completed_at": "2026-09-26T06:50:00Z",
+  "project": "Mei synthetic evaluation",
+  "task_type": "validation",
+  "goal": "Verify the V0 manual memory path with no real user data.",
+  "initial_context": "Synthetic input only.",
+  "skills_used": [],
+  "tools_used": ["python"],
+  "actions": ["Validate one synthetic trajectory", "Normalize and inspect source hash"],
+  "errors": [],
+  "corrections": [],
+  "result": {
+    "status": "completed",
+    "summary": "Synthetic validation case prepared.",
+    "evidence": ["Schema validation and deterministic output check"]
+  },
+  "evaluation": "Expected accepted record with a stable source digest.",
+  "lessons": ["Keep normalized records linked to original sources."],
+  "memory_candidates": ["A normalized source needs a reproducible digest."],
+  "skill_candidates": []
+}
