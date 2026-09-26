@@ -39,26 +39,25 @@ Project instructions can point an agent to Mei, but they do not load every memor
 
 ```mermaid
 flowchart TD
-    DONE["Eligible task completed"] -->|"one reviewed, redacted JSON"| INBOX["Inbox<br/>trajectories/inbox/"]
-    INBOX -->|"Curator started explicitly"| CHECK["Validate schema and scan for secrets"]
-    CHECK --> NORMAL["Normalize<br/>trajectories/normalized/"]
-    NORMAL --> CANDIDATE["Draft candidate<br/>memory/candidates/"]
-    CANDIDATE --> REVIEW{"Evidence, duplicates,<br/>conflicts, scope"}
-    REVIEW -->|"approved"| CANON[("Reviewed memory<br/>memory/canonical/")]
-    REVIEW -->|"unresolved"| HOLD["Keep candidate or reject"]
-    CANON --> FINISH["Move source to processed;<br/>rebuild index and validate repository"]
+    DONE["Task completed"] --> INBOX["Trajectory inbox"]
+    INBOX -->|"Start Curator"| CHECK["Validate and normalize"]
+    CHECK --> CANDIDATE["Memory candidate"]
+    CANDIDATE --> REVIEW{"Review evidence"}
+    REVIEW -->|"Approved"| CANON[("Canonical memory")]
+    REVIEW -->|"Unresolved"| HOLD["Hold or reject"]
+    CANON --> FINISH["Rebuild index and validate"]
 
     classDef capture fill:#fff7ed,stroke:#ea580c,color:#7c2d12
     classDef review fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef memory fill:#ecfdf5,stroke:#059669,color:#064e3b
     classDef process fill:#f1f5f9,stroke:#475569,color:#0f172a
     class DONE,INBOX capture
-    class CHECK,NORMAL,CANDIDATE,REVIEW,HOLD review
+    class CHECK,CANDIDATE,REVIEW,HOLD review
     class CANON memory
     class FINISH process
 ```
 
-The first arrow is the **project run**. Every later step belongs to an **explicit Curator run**. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. The source trajectory is retained with its provenance.
+The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After approval, the Curator writes the reviewed record to `memory/canonical/`, moves the source trajectory to `trajectories/processed/`, rebuilds `registry/memory.yaml`, and validates the repository. The source trajectory is retained with its provenance.
 
 | Actor | Reads | Writes |
 | --- | --- | --- |
