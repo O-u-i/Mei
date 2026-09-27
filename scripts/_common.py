@@ -1,4 +1,4 @@
-"""Shared deterministic validation for Mei V0."""
+"""Shared deterministic validation for Mei records."""
 
 from __future__ import annotations
 
@@ -49,8 +49,6 @@ def check_private_content(value: dict) -> None:
 def validate_trajectory(path: Path, root: Path = ROOT) -> dict:
     value = read_json(path)
     validate_schema(value, "trajectory.schema.json", root)
-    if value["schema_version"] != version(root):
-        raise ValueError(f"{path}: version mismatch")
     if path.stem != value["id"]:
         raise ValueError(f"{path}: filename must match trajectory id")
     check_private_content(value)

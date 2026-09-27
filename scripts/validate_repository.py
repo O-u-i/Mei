@@ -1,4 +1,4 @@
-"""Check Mei V0 structure, records, registries, and personal skill pointers."""
+"""Check Mei structure, records, registries, and personal skill pointers."""
 
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ def check_local_provenance(entry: dict, root: Path) -> None:
 def validate_repository(root: Path = ROOT) -> None:
     check_local_paths(root)
     current_version = version(root)
-    if current_version != "v0.0.0":
-        raise ValueError(f"unexpected Mei V0 version: {current_version}")
+    if current_version != "v1.0.0":
+        raise ValueError(f"unexpected Mei version: {current_version}")
     if f"Mei {current_version}" not in (root / "README.md").read_text(encoding="utf-8"):
         raise ValueError("README version differs from VERSION")
     for schema_path in (root / "schemas").glob("*.schema.json"):

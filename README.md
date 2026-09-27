@@ -1,10 +1,10 @@
-# Mei v0.0.0
+# Mei v1.0.0
 
-**Mei is a local-first prototype for carrying reviewed agent experience across projects.** A project can export a compact record of an eligible completed task. A separate, manually started review can turn supported lessons into reusable memory. Mei does not collect entire sessions or run a background curator.
+**Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, and five reviewed general policies. Actual memories, trajectories, skills, and local diagrams belong only in the local checkout.
 
-**Version:** [v0.0.0](VERSION) · **Status:** experimental
+**Version:** [v1.0.0](VERSION) · **Status:** active
 
-## What works in V0
+## What works now
 
 | Stage | Current behavior |
 | --- | --- |
@@ -13,49 +13,19 @@
 | Review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating a candidate memory. |
 | Reuse | Approved records enter `memory/canonical/` and are indexed by `registry/memory.yaml` for selective, read-only retrieval by later project tasks. |
 
-Automatic skill mining, background scheduling, and self-modifying policies are outside V0.
+Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version.
 
 ## How it works
 
 ### Read: retrieve only relevant memory
 
-```mermaid
-flowchart LR
-    TASK["Project task"] -->|"if relevant"| INDEX["Memory index<br/>registry/memory.yaml"]
-    INDEX -->|"locate selected records"| MEMORY[("Reviewed memory<br/>memory/canonical/")]
-    MEMORY -.->|"read-only context"| TASK
-
-    classDef task fill:#f1f5f9,stroke:#475569,color:#0f172a
-    classDef index fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
-    classDef memory fill:#ecfdf5,stroke:#059669,color:#064e3b
-    class TASK task
-    class INDEX index
-    class MEMORY memory
-```
+An agent reads the local memory index, opens only records relevant to its task, and treats those records as evidence rather than instructions.
 
 Project instructions can point an agent to Mei, but they do not load every memory record. The agent reads the index and opens only records relevant to its task. Records are evidence and context, never higher-priority instructions or guaranteed current facts. Executable Codex skills live in the user's personal Codex skills directory; `registry/skills.yaml` is an inventory, not a skill loader.
 
 ### Write: capture first, promote after review
 
-```mermaid
-flowchart TD
-    DONE["Task completed"] --> INBOX["Trajectory inbox"]
-    INBOX -->|"Start Curator"| CHECK["Validate and normalize"]
-    CHECK --> CANDIDATE["Memory candidate"]
-    CANDIDATE --> REVIEW{"Review evidence"}
-    REVIEW -->|"Approved"| CANON[("Canonical memory")]
-    REVIEW -->|"Unresolved"| HOLD["Hold or reject"]
-    CANON --> FINISH["Rebuild index and validate"]
-
-    classDef capture fill:#fff7ed,stroke:#ea580c,color:#7c2d12
-    classDef review fill:#fef3c7,stroke:#d97706,color:#78350f
-    classDef memory fill:#ecfdf5,stroke:#059669,color:#064e3b
-    classDef process fill:#f1f5f9,stroke:#475569,color:#0f172a
-    class DONE,INBOX capture
-    class CHECK,CANDIDATE,REVIEW,HOLD review
-    class CANON memory
-    class FINISH process
-```
+The public scripts demonstrate a manual path from a redacted task trajectory to a normalized record and a separately reviewed memory candidate.
 
 The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After approval, the Curator writes the reviewed record to `memory/canonical/`, moves the source trajectory to `trajectories/processed/`, rebuilds `registry/memory.yaml`, and validates the repository. The source trajectory is retained with its provenance.
 
@@ -73,13 +43,14 @@ Use Python 3.11 or later with the dependencies in [requirements.txt](requirement
 ```text
 python -m pip install -r requirements.txt
 python scripts/init_local.py
+python scripts/check_public_git.py
 python -m unittest discover -s tests -v
 python scripts/validate_repository.py
 ```
 
 `init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Codex home, personal skills directory, and inbox paths **for this computer**. The generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
 
-To connect a project, configure that project's agent instructions to locate **your own Mei checkout** and read `registry/memory.yaml` only when relevant. Give the project write access only to `trajectories/inbox/`; reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
+To connect a project, configure that project's local agent instructions to locate **your own Mei checkout** and read `registry/memory.yaml` only when relevant. Give the project write access only to `trajectories/inbox/`; reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
 
 After an eligible project task finishes, ask for an export explicitly. A reusable instruction is:
 
@@ -92,7 +63,7 @@ python scripts/validate_trajectory.py trajectories/inbox/<id>.json
 python scripts/normalize_trajectory.py trajectories/inbox/<id>.json
 ```
 
-Review the normalized record and its sources, write a scoped candidate, and apply the checks in the [promotion policy](policies/promotion-policy.md). After an approved promotion and a single-file move to `trajectories/processed/`, run:
+Review the normalized record and its sources, write a scoped candidate, and apply the [promotion policy](policies/promotion-policy.md). After an approved promotion and a single-file move to `trajectories/processed/`, run:
 
 ```text
 python scripts/rebuild_registry.py
@@ -110,9 +81,9 @@ These commands support a human-owned workflow; they do not perform promotion on 
 | [`trajectories/`](trajectories/) | Inbox, normalized, processed, rejected, and archived task records |
 | [`schemas/`](schemas/) | JSON Schemas for trajectories, memories, and skill metadata |
 | [`scripts/`](scripts/) | Validation, normalization, and registry rebuild commands |
-| [`policies/`](policies/) | Capture, promotion, permission, and skill rules |
-| [`evals/`](evals/) and [`tests/`](tests/) | V0 acceptance evidence and synthetic checks |
+| [`policies/`](policies/) | Five reviewed general policies for capture, promotion, permissions, memory, and skills |
+| [`evals/`](evals/) and [`tests/`](tests/) | Acceptance evidence and synthetic checks |
 
 ## Publication boundary
 
-The repository tracks code, policies, schemas, synthetic examples, and configuration templates. Its [`.gitignore`](.gitignore) excludes the local `AGENTS.md`, Codex configuration, `local/paths.toml`, generated registries, real memory and trajectories, reports, and logs. Check the staged file list before publishing; a forced `git add -f` can bypass these exclusions. No license has been selected yet. The currently active personal Codex skills are outside this repository.
+The [`.gitignore`](.gitignore) uses a public allowlist. Only the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and the five named policies are eligible for Git. Specific files under `memory/`, `skills/`, and `trajectories/` remain local; new policy files, `docs/`, local configuration, generated registries, reports, and logs are also excluded until separately reviewed. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.

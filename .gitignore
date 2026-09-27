@@ -1,40 +1,72 @@
-# Runtime and machine-specific configuration
-AGENTS.md
-__pycache__/
-.pytest_cache/
-*.pyc
-.codex/*.toml
-!.codex/*.example.toml
-local/*
-!local/*.example.toml
+# Public template allowlist. New paths stay local until deliberately reviewed.
+/*
+!/.gitignore
+!/README.md
+!/VERSION
+!/requirements.txt
 
-# Local registries are generated for this installation.
-registry/*.yaml
-!registry/*.example.yaml
+# Generic configuration examples only.
+!/.codex/
+/.codex/**
+!/.codex/config.example.toml
+!/local/
+/local/**
+!/local/paths.example.toml
+!/registry/
+/registry/**
+!/registry/memory.example.yaml
+!/registry/projects.example.yaml
+!/registry/skills.example.yaml
 
-# Private experience data stays in this checkout only.
-memory/candidates/*
-!memory/candidates/.gitkeep
-memory/archive/*
-!memory/archive/.gitkeep
-memory/episodic/*
-!memory/episodic/.gitkeep
-memory/canonical/*/*
-!memory/canonical/*/.gitkeep
-trajectories/*/*
-!trajectories/*/.gitkeep
-skills/candidates/*
-!skills/candidates/.gitkeep
-skills/archive/*
-!skills/archive/.gitkeep
+# Reusable schemas, base scripts, approved policies, and synthetic tests.
+!/schemas/
+/schemas/**
+!/schemas/memory.schema.json
+!/schemas/skill.schema.json
+!/schemas/trajectory.schema.json
+!/scripts/
+/scripts/**
+!/scripts/_common.py
+!/scripts/check_public_git.py
+!/scripts/init_local.py
+!/scripts/normalize_trajectory.py
+!/scripts/rebuild_registry.py
+!/scripts/validate_repository.py
+!/scripts/validate_trajectory.py
+!/policies/
+/policies/**
+!/policies/memory-policy.md
+!/policies/permissions-policy.md
+!/policies/promotion-policy.md
+!/policies/skill-policy.md
+!/policies/trajectory-policy.md
+!/tests/
+/tests/**
+!/tests/test_v0.py
+!/evals/
+!/evals/**/
+/evals/**
+!/evals/cases/
+!/evals/cases/synthetic-task.json
+!/evals/cases/.gitkeep
+!/evals/datasets/
+!/evals/datasets/.gitkeep
+!/evals/reports/
+!/evals/reports/.gitkeep
 
-# Local evaluation output and logs
-evals/cases/*
-!evals/cases/.gitkeep
-!evals/cases/synthetic-task.json
-evals/datasets/*
-!evals/datasets/.gitkeep
-evals/reports/*
-!evals/reports/.gitkeep
-logs/*
-!logs/.gitkeep
+# Folder skeleton only. Every specific record or skill file remains local.
+!/memory/
+/memory/**
+!/memory/**/
+!/memory/**/.gitkeep
+!/skills/
+/skills/**
+!/skills/**/
+!/skills/**/.gitkeep
+!/trajectories/
+/trajectories/**
+!/trajectories/**/
+!/trajectories/**/.gitkeep
+!/logs/
+/logs/**
+!/logs/.gitkeep

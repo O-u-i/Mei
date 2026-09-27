@@ -24,7 +24,9 @@
       }
     },
     "verified_at": {"type": ["string", "null"], "format": "date-time"},
-    "conflicts": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "review_due_at": {"type": ["string", "null"], "format": "date-time"},
+    "review_triggers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 300}},
+    "conflicts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
     "notes": {"type": "string", "maxLength": 1000}
   }
 }
