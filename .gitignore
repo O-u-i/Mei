@@ -40,6 +40,17 @@
 !/policies/promotion-policy.md
 !/policies/skill-policy.md
 !/policies/trajectory-policy.md
+
+# Two reviewed, generic Archify diagrams used by the public README.
+!/docs/
+/docs/**
+!/docs/architecture/
+!/docs/architecture/memory-read.architecture.json
+!/docs/architecture/memory-read.html
+!/docs/architecture/memory-read.svg
+!/docs/architecture/memory-promotion.workflow.json
+!/docs/architecture/memory-promotion.html
+!/docs/architecture/memory-promotion.svg
 !/tests/
 /tests/**
 !/tests/test_v0.py

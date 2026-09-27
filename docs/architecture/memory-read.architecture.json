@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Selective memory retrieval",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "projectTask", "type": "external", "label": "Project task", "sublabel": "when memory is relevant", "pos": [40, 260], "size": [180, 76] },
+    { "id": "memoryIndex", "type": "backend", "label": "Memory index", "sublabel": "registry/memory.yaml", "pos": [330, 260], "size": [190, 76] },
+    { "id": "selectedRecords", "type": "database", "label": "Selected records", "sublabel": "memory/canonical/", "pos": [630, 260], "size": [190, 76] },
+    { "id": "taskContext", "type": "frontend", "label": "Task context", "sublabel": "read-only evidence", "pos": [930, 260], "size": [190, 76] }
+  ],
+  "connections": [
+    { "id": "findIndex", "from": "projectTask", "to": "memoryIndex", "label": "locate index" },
+    { "id": "selectRecords", "from": "memoryIndex", "to": "selectedRecords", "label": "select relevant records", "labelAt": [575, 350] },
+    { "id": "readContext", "from": "selectedRecords", "to": "taskContext", "label": "read-only context" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Retrieval boundary", "items": ["The agent opens only records relevant to the project task.", "Records are evidence, not instructions or guaranteed current facts."] }
+  ]
+}

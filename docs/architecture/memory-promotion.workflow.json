@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Capture and review memory",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "project", "label": "Project task" },
+    { "id": "curator", "label": "Explicit Curator run" },
+    { "id": "unresolved", "label": "Unresolved", "variant": "exception" }
+  ],
+  "nodes": [
+    { "id": "completed", "lane": "project", "col": 0, "type": "external", "label": "Task completed", "width": 142 },
+    { "id": "inbox", "lane": "project", "col": 1, "type": "database", "label": "Trajectory inbox", "width": 142 },
+    { "id": "normalize", "lane": "curator", "col": 2, "type": "backend", "label": "Validate + normalize", "width": 158 },
+    { "id": "candidate", "lane": "curator", "col": 3, "type": "database", "label": "Memory candidate", "width": 142 },
+    { "id": "review", "lane": "curator", "col": 4, "type": "security", "label": "Evidence review", "width": 142 },
+    { "id": "canonical", "lane": "curator", "col": 5, "type": "database", "label": "Canonical memory", "width": 142 },
+    { "id": "index", "lane": "project", "col": 5, "type": "backend", "label": "Rebuild index", "width": 142 },
+    { "id": "hold", "lane": "unresolved", "col": 5, "type": "security", "label": "Hold or reject", "width": 142 }
+  ],
+  "mainPath": ["completed", "inbox", "normalize", "candidate", "review", "canonical", "index"],
+  "edges": [
+    { "id": "capture", "from": "completed", "to": "inbox" },
+    { "id": "curatorStart", "from": "inbox", "to": "normalize", "label": "start Curator" },
+    { "id": "draft", "from": "normalize", "to": "candidate" },
+    { "id": "check", "from": "candidate", "to": "review" },
+    { "id": "approve", "from": "review", "to": "canonical", "label": "approved", "variant": "emphasis" },
+    { "id": "finish", "from": "canonical", "to": "index", "label": "validate", "variant": "emphasis" },
+    { "id": "defer", "from": "review", "to": "hold", "label": "unresolved", "variant": "security", "role": "branch" }
+  ],
+  "cards": [
+    { "dot": "amber", "title": "Manual boundary", "items": ["Only the project task writes one redacted inbox record.", "Promotion requires a separate Curator run and evidence review."] },
+    { "dot": "emerald", "title": "After approval", "items": ["Preserve provenance, rebuild the memory index, and validate the repository."] }
+  ]
+}

@@ -1,6 +1,6 @@
 # Mei v1.0.0
 
-**Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, and five reviewed general policies. Actual memories, trajectories, skills, and local diagrams belong only in the local checkout.
+**Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
 **Version:** [v1.0.0](VERSION) · **Status:** active
 
@@ -19,13 +19,17 @@ Automatic skill mining, background scheduling, and self-modifying policies are n
 
 ### Read: retrieve only relevant memory
 
-An agent reads the local memory index, opens only records relevant to its task, and treats those records as evidence rather than instructions.
+![Selective memory retrieval](docs/architecture/memory-read.svg)
+
+[Interactive Archify view](docs/architecture/memory-read.html) · [Editable source](docs/architecture/memory-read.architecture.json)
 
 Project instructions can point an agent to Mei, but they do not load every memory record. The agent reads the index and opens only records relevant to its task. Records are evidence and context, never higher-priority instructions or guaranteed current facts. Executable Codex skills live in the user's personal Codex skills directory; `registry/skills.yaml` is an inventory, not a skill loader.
 
 ### Write: capture first, promote after review
 
-The public scripts demonstrate a manual path from a redacted task trajectory to a normalized record and a separately reviewed memory candidate.
+![Capture and review memory](docs/architecture/memory-promotion.svg)
+
+[Interactive Archify view](docs/architecture/memory-promotion.html) · [Editable source](docs/architecture/memory-promotion.workflow.json)
 
 The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After approval, the Curator writes the reviewed record to `memory/canonical/`, moves the source trajectory to `trajectories/processed/`, rebuilds `registry/memory.yaml`, and validates the repository. The source trajectory is retained with its provenance.
 
@@ -86,4 +90,4 @@ These commands support a human-owned workflow; they do not perform promotion on 
 
 ## Publication boundary
 
-The [`.gitignore`](.gitignore) uses a public allowlist. Only the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and the five named policies are eligible for Git. Specific files under `memory/`, `skills/`, and `trajectories/` remain local; new policy files, `docs/`, local configuration, generated registries, reports, and logs are also excluded until separately reviewed. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.
+The [`.gitignore`](.gitignore) uses a public allowlist. The six reviewed Archify diagram files linked above are included alongside the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and five named policies. Specific files under `memory/`, `skills/`, and `trajectories/` remain local; new policy files, other `docs/` content, local configuration, generated registries, browser evidence, reports, and logs are excluded until separately reviewed. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.
