@@ -9,11 +9,11 @@ from pathlib import Path
 from _common import ROOT, json_text, source_digest, validate_inbox
 
 
-def normalization_payload(data: dict, source_name: str, digest: str) -> dict:
+def normalization_payload(data: dict, source_name: str, digest: str, source_folder: str = "inbox") -> dict:
     return {
         "schema_version": data["schema_version"],
         "id": data["id"],
-        "source_path": f"trajectories/inbox/{source_name}",
+        "source_path": f"trajectories/{source_folder}/{source_name}",
         "source_sha256": digest,
         "project": data["project"],
         "completed_at": data["completed_at"],

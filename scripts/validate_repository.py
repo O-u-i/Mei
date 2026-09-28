@@ -58,7 +58,7 @@ def validate_repository(root: Path = ROOT) -> None:
         if source is None:
             raise ValueError(f"{path}: normalized source trajectory missing")
         source_path, source_data = source
-        expected = normalization_payload(source_data, source_path.name, source_digest(source_path))
+        expected = normalization_payload(source_data, source_path.name, source_digest(source_path), source_path.parent.name)
         if normalized != expected:
             raise ValueError(f"{path}: normalized content or source hash mismatch")
     memory_entries = []

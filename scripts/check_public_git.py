@@ -36,6 +36,7 @@ PUBLIC_FILES = frozenset(
         "schemas/skill.schema.json",
         "schemas/trajectory.schema.json",
         "scripts/_common.py",
+        "scripts/archive_trajectory.py",
         "scripts/check_public_git.py",
         "scripts/init_local.py",
         "scripts/normalize_trajectory.py",
