@@ -31,7 +31,7 @@ Project instructions can point an agent to Mei, but they do not load every memor
 
 [Interactive Archify view](docs/architecture/memory-promotion.html) · [Editable source](docs/architecture/memory-promotion.workflow.json)
 
-The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After a final promotion or rejection decision, the Curator archives the one source trajectory and records the decision and reason locally. Unresolved entries remain in inbox. Approved memory enters `memory/canonical/`; the Curator rebuilds `registry/memory.yaml` and validates the repository. The source trajectory is retained with its provenance.
+The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After a final promotion or rejection decision, the Curator archives the source trajectory and its normalized copy, and records the decision and reason locally. Unresolved entries remain in inbox. Approved memory enters `memory/canonical/`; the Curator rebuilds `registry/memory.yaml` and validates the repository. Both archived records retain their provenance.
 
 | Actor | Reads | Writes |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ python scripts/validate_trajectory.py trajectories/inbox/<id>.json
 python scripts/normalize_trajectory.py trajectories/inbox/<id>.json
 ```
 
-Review the normalized record and its sources, write a scoped candidate, and apply the [promotion policy](policies/promotion-policy.md). After a final decision, archive only that reviewed trajectory, then run:
+Review the normalized record and its sources, write a scoped candidate, and apply the [promotion policy](policies/promotion-policy.md). After a final decision, archive that reviewed trajectory and its normalized copy, then run:
 
 ```text
 python scripts/archive_trajectory.py trajectories/inbox/<id>.json --decision promoted --reason "Reviewed evidence and promoted scoped memory"
@@ -75,7 +75,7 @@ python scripts/rebuild_registry.py
 python scripts/validate_repository.py
 ```
 
-For a rejection, use `--decision rejected` with the actual review reason. The archive command requires canonical provenance for promotion and rejects a rejection if canonical memory cites the trajectory. These commands support a human-owned workflow; they do not perform promotion on their own.
+For a rejection, use `--decision rejected` with the actual review reason. The archive command requires canonical provenance for promotion and rejects a rejection if canonical memory cites the trajectory. Previously finalized normalized copies can be moved one at a time with `python scripts/archive_trajectory.py trajectories/normalized/<id>.json --normalized-only`. These commands support a human-owned workflow; they do not perform promotion on their own.
 
 ## Repository layout
 
@@ -83,7 +83,7 @@ For a rejection, use `--decision rejected` with the actual review reason. The ar
 | --- | --- |
 | [`registry/`](registry/) | Memory index and personal skill inventory |
 | [`memory/`](memory/) | Candidate, reviewed, and archived memory records |
-| [`trajectories/`](trajectories/) | Inbox, normalized, and archived task records; processed and rejected folders are legacy locations |
+| [`trajectories/`](trajectories/) | Inbox and active normalized records; finalized source and normalized records under archive; processed and rejected folders are legacy locations |
 | [`schemas/`](schemas/) | JSON Schemas for trajectories, memories, and skill metadata |
 | [`scripts/`](scripts/) | Validation, normalization, and registry rebuild commands |
 | [`policies/`](policies/) | Five reviewed general policies for capture, promotion, permissions, memory, and skills |

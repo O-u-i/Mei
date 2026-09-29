@@ -65,17 +65,24 @@ class V0ContractTests(unittest.TestCase):
             normalized = root / "trajectories" / "normalized" / source.name
             normalized.write_text(json_text(normalization_payload(self.trajectory, source.name, digest)), encoding="utf-8")
             record = canonical / "example.json"
-            record.write_text(json_text({"provenance": [{"source": "trajectories/inbox/synthetic-task.json"}]}), encoding="utf-8")
+            record.write_text(json_text({"provenance": [
+                {"source": "trajectories/inbox/synthetic-task.json"},
+                {"source": "trajectories/normalized/synthetic-task.json"},
+            ]}), encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "cited by canonical"):
                 archive(source, "rejected", "Evidence does not support claim", root)
             changed = archive(source, "promoted", "Evidence verified", root)
             self.assertFalse(source.exists())
             self.assertTrue((root / "trajectories" / "archive" / source.name).is_file())
-            self.assertEqual(read_json(normalized)["source_path"], "trajectories/archive/synthetic-task.json")
+            archived_normalized = root / "trajectories" / "archive" / "normalized" / source.name
+            self.assertFalse(normalized.exists())
+            self.assertEqual(read_json(archived_normalized)["source_path"], "trajectories/archive/synthetic-task.json")
             self.assertEqual(read_json(record)["provenance"][0]["source"], "trajectories/archive/synthetic-task.json")
+            self.assertEqual(read_json(record)["provenance"][1]["source"], "trajectories/archive/normalized/synthetic-task.json")
             self.assertEqual(read_json(root / "local" / "trajectory-reviews" / source.name)["decision"], "promoted")
             self.assertIn(record, changed)
+            self.assertIn(archived_normalized, changed)
 
     def test_rejected_trajectory_leaves_inbox_with_review_reason(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -85,15 +92,22 @@ class V0ContractTests(unittest.TestCase):
             inbox = root / "trajectories" / "inbox"
             inbox.mkdir(parents=True)
             (root / "trajectories" / "archive").mkdir()
+            (root / "trajectories" / "normalized").mkdir()
             (root / "memory" / "canonical").mkdir(parents=True)
             (root / "memory" / "candidates").mkdir()
             (root / "memory" / "archive").mkdir()
             source = inbox / "synthetic-task.json"
             source.write_text(json_text(self.trajectory), encoding="utf-8")
+            import hashlib
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            normalized = root / "trajectories" / "normalized" / source.name
+            normalized.write_text(json_text(normalization_payload(self.trajectory, source.name, digest)), encoding="utf-8")
 
             archive(source, "rejected", "Evidence could not be verified", root)
             self.assertFalse(source.exists())
             self.assertTrue((root / "trajectories" / "archive" / source.name).is_file())
+            self.assertFalse(normalized.exists())
+            self.assertEqual(read_json(root / "trajectories" / "archive" / "normalized" / source.name)["source_sha256"], digest)
             review = read_json(root / "local" / "trajectory-reviews" / source.name)
             self.assertEqual(review["decision"], "rejected")
             self.assertEqual(review["reason"], "Evidence could not be verified")

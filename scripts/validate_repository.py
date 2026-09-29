@@ -52,12 +52,18 @@ def validate_repository(root: Path = ROOT) -> None:
     for schema_path in (root / "schemas").glob("*.schema.json"):
         Draft202012Validator.check_schema(read_json(schema_path))
     trajectory_store = validate_trajectory_store(root)
-    for path in sorted((root / "trajectories" / "normalized").glob("*.json")):
+    active_normalized = root / "trajectories" / "normalized"
+    archived_normalized = root / "trajectories" / "archive" / "normalized"
+    for path in sorted((*active_normalized.glob("*.json"), *archived_normalized.glob("*.json"))):
         normalized = read_json(path)
         source = trajectory_store.get(path.stem)
         if source is None:
             raise ValueError(f"{path}: normalized source trajectory missing")
         source_path, source_data = source
+        if source_path.parent.name == "archive" and path.parent != archived_normalized:
+            raise ValueError(f"{path}: finalized normalized record must be archived")
+        if source_path.parent.name != "archive" and path.parent == archived_normalized:
+            raise ValueError(f"{path}: unresolved normalized record cannot be archived")
         expected = normalization_payload(source_data, source_path.name, source_digest(source_path), source_path.parent.name)
         if normalized != expected:
             raise ValueError(f"{path}: normalized content or source hash mismatch")
