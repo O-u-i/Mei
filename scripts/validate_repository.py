@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tomllib
+import re
 from pathlib import Path
 
 import yaml
@@ -42,6 +43,18 @@ def check_local_provenance(entry: dict, root: Path) -> None:
             raise ValueError(f"{entry['id']}: missing or unsafe provenance path: {source['source']}")
 
 
+def check_episodic_references(entry: dict, root: Path) -> None:
+    for reference in entry.get("references", []):
+        target = (root / reference).resolve()
+        episodic_root = (root / "memory" / "episodic").resolve()
+        if not target.is_relative_to(episodic_root) or not target.is_file():
+            raise ValueError(f"{entry['id']}: missing or unsafe episodic reference: {reference}")
+        for link in re.findall(r"\]\((references/[^)]+)\)", target.read_text(encoding="utf-8")):
+            detail = (target.parent / link).resolve()
+            if not detail.is_relative_to(target.parent) or not detail.is_file():
+                raise ValueError(f"{entry['id']}: missing or unsafe episodic detail: {link}")
+
+
 def validate_repository(root: Path = ROOT) -> None:
     check_local_paths(root)
     current_version = version(root)
@@ -75,6 +88,7 @@ def validate_repository(root: Path = ROOT) -> None:
             validate_schema(entry, "memory.schema.json", root)
             check_private_content(entry)
             check_local_provenance(entry, root)
+            check_episodic_references(entry, root)
             if entry["status"] != expected_status or entry["id"] != path.stem:
                 raise ValueError(f"{path}: status or filename mismatch")
             if group == "canonical" and (entry["verified_at"] is None or entry["category"] != path.parent.name):

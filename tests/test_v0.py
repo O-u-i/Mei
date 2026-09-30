@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from _common import assert_unique_ids, check_private_content, json_text, read_json, validate_schema  # noqa: E402
 from normalize_trajectory import normalization_payload  # noqa: E402
 from archive_trajectory import archive  # noqa: E402
-from validate_repository import validate_repository  # noqa: E402
+from validate_repository import check_episodic_references, validate_repository  # noqa: E402
 
 
 class V0ContractTests(unittest.TestCase):
@@ -44,6 +44,22 @@ class V0ContractTests(unittest.TestCase):
 
     def test_repository_index_and_skill_pointers_are_consistent(self):
         validate_repository(ROOT)
+
+    def test_episodic_reference_must_resolve_inside_memory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            index = root / "memory" / "episodic" / "example-event" / "INDEX.md"
+            index.parent.mkdir(parents=True)
+            index.write_text("# Example event\n\n[Detail](references/detail.md)\n", encoding="utf-8")
+            detail = index.parent / "references" / "detail.md"
+            detail.parent.mkdir()
+            detail.write_text("# Detail\n", encoding="utf-8")
+            check_episodic_references({"id": "example", "references": ["memory/episodic/example-event/INDEX.md"]}, root)
+            detail.unlink()
+            with self.assertRaisesRegex(ValueError, "missing or unsafe episodic detail"):
+                check_episodic_references({"id": "example", "references": ["memory/episodic/example-event/INDEX.md"]}, root)
+            with self.assertRaisesRegex(ValueError, "missing or unsafe"):
+                check_episodic_references({"id": "example", "references": ["memory/episodic/missing/INDEX.md"]}, root)
 
     def test_finalized_trajectory_is_archived_with_provenance_and_hash(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -25,6 +25,8 @@ Automatic skill mining, background scheduling, and self-modifying policies are n
 
 Project instructions can point an agent to Mei, but they do not load every memory record. The agent reads the index and opens only records relevant to its task. Records are evidence and context, never higher-priority instructions or guaranteed current facts. Executable Codex skills live in the user's personal Codex skills directory; `registry/skills.yaml` is an inventory, not a skill loader.
 
+When a canonical record has `references`, open its local episodic `INDEX.md` only if historical detail is needed, then read the relevant linked file. These dated references preserve reviewed project episodes without turning old stack choices, license checks, or deployment permissions into current instructions. Episodic files are not indexed as canonical claims.
+
 ### Write: capture first, promote after review
 
 ![Capture and review memory](docs/architecture/memory-promotion.svg)
