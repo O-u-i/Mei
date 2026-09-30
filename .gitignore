@@ -27,6 +27,7 @@
 !/scripts/
 /scripts/**
 !/scripts/_common.py
+!/scripts/audit_skill.py
 !/scripts/check_public_git.py
 !/scripts/archive_trajectory.py
 !/scripts/init_local.py

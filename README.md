@@ -15,6 +15,8 @@
 
 Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version.
 
+Personal skills are maintained separately from memory promotion. In a maintainer task, compare one proposed complete skill directory with its installed copy using `python scripts/audit_skill.py <skill-id> --proposed-dir <directory>`. This command is read-only; the [skill policy](policies/skill-policy.md) governs review, validation, and installation. Historical files under `skills/candidates/` are review evidence, not skill packages or active instructions.
+
 ## How it works
 
 ### Read: retrieve only relevant memory
