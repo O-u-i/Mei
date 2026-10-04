@@ -23,7 +23,10 @@ def version(root: Path = ROOT) -> str:
 
 
 def read_json(path: Path) -> dict:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{path}: expected JSON object")
     return value

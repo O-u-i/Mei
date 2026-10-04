@@ -70,6 +70,19 @@ def archive(path: Path, decision: str, reason: str, root: Path = ROOT) -> list[P
     aliases = {f"trajectories/{folder}/{path.name}" for folder in ("inbox", "processed", "rejected")}
     archived_path = f"trajectories/archive/{path.name}"
     normalized_source = f"trajectories/normalized/{path.name}"
+    archived_normalized = f"trajectories/archive/normalized/{path.name}"
+    normalized_path = store / "normalized" / path.name
+    normalized_destination = store / "archive" / "normalized" / path.name
+    digest = source_digest(path)
+    has_normalized = normalized_path.exists()
+    if has_normalized:
+        if normalized_destination.exists():
+            raise ValueError("normalized archive destination already exists")
+        normalized = read_json(normalized_path)
+        if normalized["source_sha256"] != digest or normalized["id"] != item["id"]:
+            raise ValueError("normalized source hash or ID mismatch")
+        if normalized["source_path"] not in aliases:
+            raise ValueError("normalized source path does not match the trajectory")
     updates: list[tuple[Path, dict]] = []
     canonical_refs = 0
     for group, pattern in (("candidates", "*.json"), ("canonical", "*/*.json"), ("archive", "*.json")):
@@ -79,6 +92,9 @@ def archive(path: Path, decision: str, reason: str, root: Path = ROOT) -> list[P
             for entry in record["provenance"]:
                 if group == "canonical" and entry["source"] == normalized_source:
                     canonical_refs += 1
+                if has_normalized and entry["source"] == normalized_source:
+                    entry["source"] = archived_normalized
+                    changed = True
                 if entry["source"] in aliases:
                     entry["source"] = archived_path
                     changed = True
@@ -91,23 +107,15 @@ def archive(path: Path, decision: str, reason: str, root: Path = ROOT) -> list[P
     if decision == "rejected" and canonical_refs:
         raise ValueError("rejected trajectory is cited by canonical memory")
 
-    normalized_path = root / "trajectories" / "normalized" / path.name
-    normalized = None
-    digest = source_digest(path)
-    if normalized_path.exists():
-        normalized = read_json(normalized_path)
-        if normalized["source_sha256"] != digest or normalized["id"] != item["id"]:
-            raise ValueError("normalized source hash or ID mismatch")
-        if normalized["source_path"] not in aliases:
-            raise ValueError("normalized source path does not match the trajectory")
-
     review.parent.mkdir(parents=True, exist_ok=True)
     path.rename(destination)  # Exactly one named trajectory is moved per invocation.
     changed_paths = [destination]
-    if normalized is not None:
+    if has_normalized:
         updated = normalization_payload(item, path.name, digest, "archive")
+        normalized_destination.parent.mkdir(parents=True, exist_ok=True)
         normalized_path.write_text(json_text(updated), encoding="utf-8")
-        changed_paths.append(normalized_path)
+        normalized_path.rename(normalized_destination)
+        changed_paths.append(normalized_destination)
     for record_path, record in updates:
         record_path.write_text(json_text(record), encoding="utf-8")
         changed_paths.append(record_path)
@@ -120,8 +128,6 @@ def archive(path: Path, decision: str, reason: str, root: Path = ROOT) -> list[P
         "source_path": archived_path,
     }), encoding="utf-8")
     changed_paths.append(review)
-    if normalized is not None:
-        changed_paths.extend(archive_normalized(normalized_path, root))
     return changed_paths
 
 

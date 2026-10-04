@@ -7,12 +7,11 @@ from pathlib import Path
 
 import yaml
 
-from _common import ROOT, check_private_content, read_json, validate_schema, version
+from _common import ROOT, assert_unique_ids, check_private_content, read_json, validate_schema, version
 
 
 def expected_registry(root: Path = ROOT) -> dict:
     records = []
-    seen: set[str] = set()
     base = root / "memory" / "canonical"
     for path in sorted(base.glob("*/*.json")):
         item = read_json(path)
@@ -22,10 +21,8 @@ def expected_registry(root: Path = ROOT) -> dict:
             raise ValueError(f"{path}: canonical record must be verified")
         if item["category"] != path.parent.name or item["id"] != path.stem:
             raise ValueError(f"{path}: category or filename mismatch")
-        if item["id"] in seen:
-            raise ValueError(f"duplicate memory id: {item['id']}")
-        seen.add(item["id"])
         records.append({"id": item["id"], "category": item["category"], "scope": item["scope"], "path": path.relative_to(root).as_posix()})
+    assert_unique_ids(records, "memory")
     return {"version": version(root), "generated_by": "scripts/rebuild_registry.py", "records": records}
 
 

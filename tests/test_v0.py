@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from _common import assert_unique_ids, check_private_content, json_text, read_json, validate_schema  # noqa: E402
 from normalize_trajectory import normalization_payload  # noqa: E402
-from archive_trajectory import archive  # noqa: E402
+from archive_trajectory import archive, archive_normalized  # noqa: E402
+from init_local import initialize  # noqa: E402
 from validate_repository import check_episodic_references, validate_repository  # noqa: E402
 
 
@@ -43,7 +44,39 @@ class V0ContractTests(unittest.TestCase):
             assert_unique_ids([{"id": "same"}, {"id": "same"}], "memory")
 
     def test_repository_index_and_skill_pointers_are_consistent(self):
-        validate_repository(ROOT)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ("schemas", "registry", ".codex"):
+                (root / name).mkdir()
+            for source in (ROOT / "schemas").glob("*.schema.json"):
+                shutil.copyfile(source, root / "schemas" / source.name)
+            for source in (ROOT / "registry").glob("*.example.yaml"):
+                shutil.copyfile(source, root / "registry" / source.name)
+            for name in ("VERSION", "README.md", ".codex/config.example.toml"):
+                shutil.copyfile(ROOT / name, root / name)
+            initialize(root, root / "codex")
+            validate_repository(root)
+            skills = root / "registry" / "skills.yaml"
+            skill_file = root / "codex" / "skills" / "example" / "SKILL.md"
+            skill_file.parent.mkdir(parents=True)
+            skill_file.write_text("name: example\n", encoding="utf-8")
+            # JSON is also YAML; keep this synthetic registry independent of local skills.
+            skill = {"id": "example", "path": str(skill_file), "status": "active", "description": "Synthetic skill"}
+            skills.write_text(json_text({"version": "v1.0.0", "skills": [skill]}), encoding="utf-8")
+            validate_repository(root)
+            skills.write_text(json_text({"version": "v1.0.0", "skills": [skill, skill]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "duplicate skill id"):
+                validate_repository(root)
+            skills.write_text(json_text({"version": "v1.0.0", "skills": [dict(skill, path=str(root / 'missing.md'))]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "active skill missing"):
+                validate_repository(root)
+
+    def test_invalid_json_identifies_the_source_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "empty.json"
+            path.write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "empty.json: invalid JSON"):
+                read_json(path)
 
     def test_episodic_reference_must_resolve_inside_memory(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -86,6 +119,15 @@ class V0ContractTests(unittest.TestCase):
                 {"source": "trajectories/normalized/synthetic-task.json"},
             ]}), encoding="utf-8")
 
+            archived_normalized = root / "trajectories" / "archive" / "normalized" / source.name
+            archived_normalized.parent.mkdir()
+            archived_normalized.write_text("Existing evidence\n", encoding="utf-8")
+            before = {path: path.read_bytes() for path in (source, normalized, record, archived_normalized)}
+            with self.assertRaisesRegex(ValueError, "normalized archive destination already exists"):
+                archive(source, "promoted", "Evidence verified", root)
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
+            self.assertFalse((root / "local" / "trajectory-reviews" / source.name).exists())
+            archived_normalized.unlink()  # One explicitly named synthetic test file.
             with self.assertRaisesRegex(ValueError, "cited by canonical"):
                 archive(source, "rejected", "Evidence does not support claim", root)
             changed = archive(source, "promoted", "Evidence verified", root)
@@ -99,6 +141,33 @@ class V0ContractTests(unittest.TestCase):
             self.assertEqual(read_json(root / "local" / "trajectory-reviews" / source.name)["decision"], "promoted")
             self.assertIn(record, changed)
             self.assertIn(archived_normalized, changed)
+            self.assertNotIn(normalized, changed)
+            self.assertEqual(len(changed), len(set(changed)))
+
+            # The standalone command still backfills an already reviewed normalized record.
+            archived_normalized.rename(normalized)
+            data = read_json(record)
+            data["provenance"][1]["source"] = "trajectories/normalized/synthetic-task.json"
+            record.write_text(json_text(data), encoding="utf-8")
+            review = root / "local" / "trajectory-reviews" / source.name
+            review_before = review.read_bytes()
+            self.assertEqual(archive_normalized(normalized, root), [archived_normalized, record])
+            self.assertEqual(review.read_bytes(), review_before)
+            self.assertEqual(read_json(record)["provenance"][1]["source"], "trajectories/archive/normalized/synthetic-task.json")
+
+    def test_rejected_trajectory_can_be_archived_without_normalization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "schemas").mkdir()
+            shutil.copyfile(ROOT / "schemas" / "trajectory.schema.json", root / "schemas" / "trajectory.schema.json")
+            source = root / "trajectories" / "inbox" / "synthetic-task.json"
+            source.parent.mkdir(parents=True)
+            source.write_text(json_text(self.trajectory), encoding="utf-8")
+            (root / "trajectories" / "archive").mkdir()
+            changed = archive(source, "rejected", "Evidence unverified", root)
+            self.assertEqual(len(changed), 2)
+            self.assertFalse(source.exists())
+            self.assertFalse((root / "trajectories" / "archive" / "normalized").exists())
 
     def test_rejected_trajectory_leaves_inbox_with_review_reason(self):
         with tempfile.TemporaryDirectory() as temp:

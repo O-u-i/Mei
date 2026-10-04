@@ -113,16 +113,14 @@ def validate_repository(root: Path = ROOT) -> None:
     skill_registry = yaml.safe_load((root / "registry" / "skills.yaml").read_text(encoding="utf-8"))
     if skill_registry.get("version") != current_version:
         raise ValueError("skills registry version differs")
-    skill_ids = set()
-    for skill in skill_registry.get("skills", []):
+    skills = skill_registry.get("skills", [])
+    for skill in skills:
         validate_schema(skill, "skill.schema.json", root)
-        if skill["id"] in skill_ids:
-            raise ValueError(f"duplicate skill id: {skill['id']}")
-        skill_ids.add(skill["id"])
         if skill["status"] == "active":
             path = Path(skill["path"])
             if not path.is_file() or f"name: {skill['id']}" not in path.read_text(encoding="utf-8"):
                 raise ValueError(f"active skill missing or name mismatch: {path}")
+    assert_unique_ids(skills, "skill")
 
 
 def main() -> int:

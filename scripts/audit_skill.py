@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 import tomllib
 from pathlib import Path
 
 import yaml
 
-from _common import ROOT
+from _common import ROOT, source_digest
 
 
 def inventory(directory: Path) -> dict[str, str]:
@@ -20,7 +19,7 @@ def inventory(directory: Path) -> dict[str, str]:
     for path in sorted(directory.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
             relative = path.relative_to(directory).as_posix()
-            result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            result[relative] = source_digest(path)
     return result
 
 
