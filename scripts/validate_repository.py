@@ -15,22 +15,22 @@ from normalize_trajectory import normalization_payload
 from rebuild_registry import expected_registry
 
 
-def check_local_paths(root: Path) -> None:
+def check_local_paths(root: Path) -> dict[str, Path]:
     path = root / "local" / "paths.toml"
     if not path.is_file():
         raise ValueError("local paths missing; run python scripts/init_local.py")
     with path.open("rb") as stream:
         config = tomllib.load(stream)
-    paths = config.get("paths", {})
+    raw_paths = config.get("paths", {})
     required = ("mei_root", "codex_home", "skills_root", "inbox")
-    if any(not isinstance(paths.get(key), str) or not Path(paths[key]).is_absolute() for key in required):
+    if any(not isinstance(raw_paths.get(key), str) or not Path(raw_paths[key]).is_absolute() for key in required):
         raise ValueError("local paths must be absolute")
-    if Path(paths["mei_root"]).resolve() != root.resolve():
+    paths = {key: Path(raw_paths[key]).resolve() for key in required}
+    if paths["mei_root"] != root.resolve():
         raise ValueError("local mei_root differs from this checkout")
-    if Path(paths["inbox"]).resolve() != (root / "trajectories" / "inbox").resolve():
+    if paths["inbox"] != (root / "trajectories" / "inbox").resolve():
         raise ValueError("local inbox differs from this checkout")
-    if Path(paths["skills_root"]).resolve() != (Path(paths["codex_home"]) / "skills").resolve():
-        raise ValueError("local skills_root differs from codex_home/skills")
+    return paths
 
 
 def check_local_provenance(entry: dict, root: Path) -> None:
@@ -56,7 +56,7 @@ def check_episodic_references(entry: dict, root: Path) -> None:
 
 
 def validate_repository(root: Path = ROOT) -> None:
-    check_local_paths(root)
+    local_paths = check_local_paths(root)
     current_version = version(root)
     if current_version != "v1.0.0":
         raise ValueError(f"unexpected Mei version: {current_version}")
@@ -117,9 +117,9 @@ def validate_repository(root: Path = ROOT) -> None:
     for skill in skills:
         validate_schema(skill, "skill.schema.json", root)
         if skill["status"] == "active":
-            path = Path(skill["path"])
-            if not path.is_file() or f"name: {skill['id']}" not in path.read_text(encoding="utf-8"):
-                raise ValueError(f"active skill missing or name mismatch: {path}")
+            path = Path(skill["path"]).resolve()
+            if not path.is_relative_to(local_paths["skills_root"]) or not path.is_file() or f"name: {skill['id']}" not in path.read_text(encoding="utf-8"):
+                raise ValueError(f"active skill missing, outside skills_root, or name mismatch: {path}")
     assert_unique_ids(skills, "skill")
 
 

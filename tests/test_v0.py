@@ -55,9 +55,13 @@ class V0ContractTests(unittest.TestCase):
             for name in ("VERSION", "README.md", ".codex/config.example.toml"):
                 shutil.copyfile(ROOT / name, root / name)
             initialize(root, root / "codex")
+            local_paths = root / "local" / "paths.toml"
+            old_skills_root = json.dumps(str(root / "codex" / "skills"))
+            new_skills_root = json.dumps(str(root / "agents" / "skills"))
+            local_paths.write_text(local_paths.read_text(encoding="utf-8").replace(old_skills_root, new_skills_root), encoding="utf-8")
             validate_repository(root)
             skills = root / "registry" / "skills.yaml"
-            skill_file = root / "codex" / "skills" / "example" / "SKILL.md"
+            skill_file = root / "agents" / "skills" / "example" / "SKILL.md"
             skill_file.parent.mkdir(parents=True)
             skill_file.write_text("name: example\n", encoding="utf-8")
             # JSON is also YAML; keep this synthetic registry independent of local skills.
