@@ -1,8 +1,8 @@
-# Mei v1.2.0
+# Mei v1.3.0
 
 **Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
-**Version:** [v1.2.0](VERSION) · **Status:** active
+**Version:** [v1.3.0](VERSION) · **Status:** active
 
 ## What works now
 
@@ -40,8 +40,23 @@ rejects stale snapshots, validates the payload and replaces `project.json` and
 `checkpointer.json` atomically one at a time. A mismatch between replacements
 is reported as `needs_reconcile`; both files are preserved until an explicit
 reviewed recovery payload is submitted with a fresh snapshot and `--reconcile`.
-Every accepted checkpoint remains `dirty`; marking semantic sync complete and
-compact hooks are deferred.
+Every accepted checkpoint remains `dirty` until an explicitly reviewed payload
+is synchronized. The Phase 3 sync operation rechecks the snapshot's generation
+and project/index hashes under the same context lock, reports deterministic
+`added`, `updated`, `archived`, and `skipped` field lists, and atomically marks
+the saved generation clean. An identical clean payload is a no-op; an identical
+payload for a dirty checkpoint only advances the synced-generation bookkeeping.
+
+```text
+python scripts/sync_continuity.py --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-snapshot.json> --project <reviewed-project.json> --writer-session-id <session-id>
+```
+
+Lifecycle callers may send `user_prompt_submit`, `precompact_manual`,
+`precompact_auto`, or `precompact_unknown` without prompt text. Manual compact
+is allowed only for a clean context. Automatic and unknown compact fail open
+and record `needs_reconcile` debt so a later explicit sync can repair it. These
+are reusable application seams; no production GUI/TUI hook or OS ACL is
+installed by the repository.
 
 ```text
 python scripts/checkpoint_continuity.py --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --base-generation <generation> --base-project-sha256 <sha256> --base-index-sha256 <sha256> --writer-session-id <session-id> --project <reviewed-project.json>

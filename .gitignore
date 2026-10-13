@@ -40,6 +40,7 @@
 !/scripts/validate_trajectory.py
 !/scripts/check_continuity.py
 !/scripts/checkpoint_continuity.py
+!/scripts/sync_continuity.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -64,6 +65,7 @@
 !/tests/test_v0.py
 !/tests/test_continuity.py
 !/tests/test_checkpoint_continuity.py
+!/tests/test_sync_continuity.py
 !/evals/
 !/evals/**/
 /evals/**
