@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
-from _common import ROOT, assert_unique_ids, check_private_content, read_json, source_digest, validate_schema, validate_trajectory_store, version
+from _common import ROOT, assert_unique_ids, check_private_content, read_json, source_digest, supports_registry_version, validate_schema, validate_trajectory_store, version
 from normalize_trajectory import normalization_payload
 from rebuild_registry import expected_registry
 
@@ -105,13 +105,19 @@ def validate_repository(root: Path = ROOT) -> None:
         if entry["status"] != "archived" or entry["id"] != path.stem:
             raise ValueError(f"{path}: archived status or filename mismatch")
     memory_registry = yaml.safe_load((root / "registry" / "memory.yaml").read_text(encoding="utf-8"))
-    if memory_registry != expected_registry(root):
+    expected_memory_registry = expected_registry(root)
+    if (
+        not isinstance(memory_registry, dict)
+        or not supports_registry_version(memory_registry.get("version"), current_version)
+        or memory_registry.get("generated_by") != expected_memory_registry["generated_by"]
+        or memory_registry.get("records") != expected_memory_registry["records"]
+    ):
         raise ValueError("memory registry is stale; run rebuild_registry.py")
     projects = yaml.safe_load((root / "registry" / "projects.yaml").read_text(encoding="utf-8"))
-    if projects.get("version") != current_version or not isinstance(projects.get("projects"), list):
+    if not supports_registry_version(projects.get("version"), current_version) or not isinstance(projects.get("projects"), list):
         raise ValueError("projects registry invalid")
     skill_registry = yaml.safe_load((root / "registry" / "skills.yaml").read_text(encoding="utf-8"))
-    if skill_registry.get("version") != current_version:
+    if not supports_registry_version(skill_registry.get("version"), current_version):
         raise ValueError("skills registry version differs")
     skills = skill_registry.get("skills", [])
     for skill in skills:

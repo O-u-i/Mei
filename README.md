@@ -1,8 +1,8 @@
-# Mei v1.1.0
+# Mei v1.2.0
 
 **Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
-**Version:** [v1.1.0](VERSION) · **Status:** active
+**Version:** [v1.2.0](VERSION) · **Status:** active
 
 ## What works now
 
@@ -13,15 +13,14 @@
 | Review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating a candidate memory. |
 | Reuse | Approved records enter `memory/canonical/` and are indexed by `registry/memory.yaml` for selective, read-only retrieval by later project tasks. |
 
-### Continuity read
+### Continuity read and checkpoint
 
 The read-only continuity loader selects one repository/context pair. It
 reads the Git-ignored `registry/continuity.yaml` index and the selected
 `memory/continuity/<repo-id>/<context-id>/project.json` plus
 `checkpointer.json`, validates containment, schemas, privacy backstops and
 hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, or `conflict`.
-It never repairs state, writes a hook marker, or touches candidates,
-canonical memory, registries, or installed skills. GUI and TUI callers use the
+It never repairs state or writes a hook marker. GUI and TUI callers use the
 same public loader. Host-specific adapters are not included.
 
 For a configured local checkout, inspect one context with:
@@ -31,10 +30,32 @@ python scripts/check_continuity.py --repo-root <repository-root> --context-id <i
 ```
 
 The reader derives the continuity root from the Mei checkout passed as
-`--mei-root` (the script defaults to its own checkout), so no nested vault or
-additional memory writer is introduced.
+`--mei-root` (the script defaults to its own checkout), so no nested vault is
+introduced.
 
-Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version.
+The narrow checkpoint command updates one existing indexed context. The caller
+loads the context, edits a reviewed project payload, then submits the snapshot's
+generation and project/index hashes. It acquires an OS-released context lock,
+rejects stale snapshots, validates the payload and replaces `project.json` and
+`checkpointer.json` atomically one at a time. A mismatch between replacements
+is reported as `needs_reconcile`; both files are preserved until an explicit
+reviewed recovery payload is submitted with a fresh snapshot and `--reconcile`.
+Every accepted checkpoint remains `dirty`; marking semantic sync complete and
+compact hooks are deferred.
+
+```text
+python scripts/checkpoint_continuity.py --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --base-generation <generation> --base-project-sha256 <sha256> --base-index-sha256 <sha256> --writer-session-id <session-id> --project <reviewed-project.json>
+```
+
+A conflict exits with code 2 and returns the observed metadata plus attempted
+payload. Lock timeout exits with code 4. Recovery requires a newly read
+snapshot and `--reconcile`; it does not declare semantic sync or change the
+index. The writer only accepts an existing context and cannot create an index
+entry, write a trajectory, touch canonical or candidate memory, or install
+skills. This is an application-level path allowlist; the command neither
+configures nor proves an OS filesystem profile or ACL.
+
+Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version. Existing same-major local registry versions remain readable across a Mei minor release and are not rewritten by validation; generated registries update when their owner explicitly rebuilds them.
 
 Personal skills are maintained separately from memory promotion. In a maintainer task, compare one proposed complete skill directory with its installed copy using `python scripts/audit_skill.py <skill-id> --proposed-dir <directory>`. This command is read-only; the [skill policy](policies/skill-policy.md) governs review, validation, and installation. Historical files under `skills/candidates/` are review evidence, not skill packages or active instructions.
 

@@ -257,8 +257,8 @@ class ContinuityTests(unittest.TestCase):
             alias = temp / "mei-alias"
             try:
                 os.symlink(fixture.mei, alias, target_is_directory=True)
-            except (OSError, NotImplementedError):
-                self.skipTest("symlink creation is unavailable on this Windows host")
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink creation is unavailable on this Windows host: {error}")
             with self.assertRaisesRegex(ContinuityError, "symlink"):
                 load_context(fixture.repo, fixture.context_id, mei_root=alias)
 
@@ -473,11 +473,18 @@ class ContinuityTests(unittest.TestCase):
             fixture.context_dir.rename(real_context)
             try:
                 os.symlink(real_context, fixture.context_dir, target_is_directory=True)
-            except (OSError, NotImplementedError):
-                command = f'mklink /J "{fixture.context_dir}" "{real_context}"'
-                result = subprocess.run(["cmd.exe", "/d", "/c", command], capture_output=True, text=True)
+            except (OSError, NotImplementedError) as symlink_error:
+                result = subprocess.run(
+                    ["cmd.exe", "/d", "/c", "mklink", "/J", str(fixture.context_dir), str(real_context)],
+                    capture_output=True,
+                    text=True,
+                )
                 if result.returncode:
-                    self.skipTest("symlink and junction creation are unavailable on this Windows host")
+                    detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                    self.skipTest(
+                        f"symlink and junction creation are unavailable on this Windows host: "
+                        f"os.symlink: {symlink_error}; mklink /J: {detail}"
+                    )
             with self.assertRaisesRegex(ContinuityError, "symlink"):
                 load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
 

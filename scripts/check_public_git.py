@@ -43,6 +43,7 @@ PUBLIC_FILES = frozenset(
         "scripts/archive_trajectory.py",
         "scripts/check_public_git.py",
         "scripts/check_continuity.py",
+        "scripts/checkpoint_continuity.py",
         "scripts/init_local.py",
         "scripts/normalize_trajectory.py",
         "scripts/rebuild_registry.py",
@@ -50,6 +51,7 @@ PUBLIC_FILES = frozenset(
         "scripts/validate_trajectory.py",
         "tests/test_v0.py",
         "tests/test_continuity.py",
+        "tests/test_checkpoint_continuity.py",
     }
 )
 SKELETON_PATH = re.compile(r"^(?:memory|skills|trajectories|evals|logs)/(?:[^/]+/)*\.gitkeep$")

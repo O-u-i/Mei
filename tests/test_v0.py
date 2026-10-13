@@ -2,9 +2,10 @@
 
 import json
 import sys
-import tempfile
 import unittest
 import shutil
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,18 @@ from normalize_trajectory import normalization_payload  # noqa: E402
 from archive_trajectory import archive, archive_normalized  # noqa: E402
 from init_local import initialize  # noqa: E402
 from validate_repository import check_episodic_references, validate_repository  # noqa: E402
+
+
+@contextmanager
+def fixture_root():
+    base = ROOT / ".tmp" / "pytest"
+    base.mkdir(parents=True, exist_ok=True)
+    root = base / f"v0-{uuid.uuid4().hex}"
+    root.mkdir()
+    try:
+        yield root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 class V0ContractTests(unittest.TestCase):
@@ -44,8 +57,7 @@ class V0ContractTests(unittest.TestCase):
             assert_unique_ids([{"id": "same"}, {"id": "same"}], "memory")
 
     def test_repository_index_and_skill_pointers_are_consistent(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+        with fixture_root() as root:
             for name in ("schemas", "registry", ".codex"):
                 (root / name).mkdir()
             for source in (ROOT / "schemas").glob("*.schema.json"):
@@ -77,15 +89,14 @@ class V0ContractTests(unittest.TestCase):
                 validate_repository(root)
 
     def test_invalid_json_identifies_the_source_file(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "empty.json"
+        with fixture_root() as root:
+            path = root / "empty.json"
             path.write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "empty.json: invalid JSON"):
                 read_json(path)
 
     def test_episodic_reference_must_resolve_inside_memory(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+        with fixture_root() as root:
             index = root / "memory" / "episodic" / "example-event" / "INDEX.md"
             index.parent.mkdir(parents=True)
             index.write_text("# Example event\n\n[Detail](references/detail.md)\n", encoding="utf-8")
@@ -100,8 +111,7 @@ class V0ContractTests(unittest.TestCase):
                 check_episodic_references({"id": "example", "references": ["memory/episodic/missing/INDEX.md"]}, root)
 
     def test_finalized_trajectory_is_archived_with_provenance_and_hash(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+        with fixture_root() as root:
             (root / "schemas").mkdir()
             shutil.copyfile(ROOT / "schemas" / "trajectory.schema.json", root / "schemas" / "trajectory.schema.json")
             inbox = root / "trajectories" / "inbox"
@@ -161,8 +171,7 @@ class V0ContractTests(unittest.TestCase):
             self.assertEqual(read_json(record)["provenance"][1]["source"], "trajectories/archive/normalized/synthetic-task.json")
 
     def test_rejected_trajectory_can_be_archived_without_normalization(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+        with fixture_root() as root:
             (root / "schemas").mkdir()
             shutil.copyfile(ROOT / "schemas" / "trajectory.schema.json", root / "schemas" / "trajectory.schema.json")
             source = root / "trajectories" / "inbox" / "synthetic-task.json"
@@ -175,8 +184,7 @@ class V0ContractTests(unittest.TestCase):
             self.assertFalse((root / "trajectories" / "archive" / "normalized").exists())
 
     def test_rejected_trajectory_leaves_inbox_with_review_reason(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+        with fixture_root() as root:
             (root / "schemas").mkdir()
             shutil.copyfile(ROOT / "schemas" / "trajectory.schema.json", root / "schemas" / "trajectory.schema.json")
             inbox = root / "trajectories" / "inbox"

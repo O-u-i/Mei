@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-from _common import ROOT
+from _common import ROOT, supports_registry_version
 
 SCHEMA_VERSION = "v0.1.0"
 MAX_INDEX_BYTES = 262_144
@@ -329,8 +329,8 @@ def load_context(
     if index["schema_version"] != SCHEMA_VERSION:
         raise ContinuityError(f"{index_path}: unknown continuity index schema")
     release = _release_version(mei_root)
-    if release is not None and index["version"] != release:
-        raise ContinuityError(f"{index_path}: release version differs from VERSION")
+    if release is not None and not supports_registry_version(index["version"], release):
+        raise ContinuityError(f"{index_path}: index version is invalid or newer than VERSION")
     if len(index["entries"]) > MAX_INDEX_ENTRIES:
         raise ContinuityError(f"{index_path}: too many context entries")
 
@@ -433,6 +433,9 @@ def load_context(
         "checkpointer": checkpointer,
         "project_sha256": project_sha256,
         "index_sha256": index_sha256,
+        "index_bytes": actual_bytes,
+        "index_lines": actual_lines,
+        "needs_reconcile": pair_needs_reconcile,
         "stable_refs": stable_refs,
         "live_repository": live_repository,
         "diagnostics": diagnostics,

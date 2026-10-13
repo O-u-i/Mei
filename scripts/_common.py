@@ -22,6 +22,17 @@ def version(root: Path = ROOT) -> str:
     return (root / "VERSION").read_text(encoding="utf-8").strip()
 
 
+def supports_registry_version(value: object, current: str) -> bool:
+    """Accept an older same-major local registry without rewriting its state."""
+    def parse(candidate: object) -> tuple[int, int, int] | None:
+        if not isinstance(candidate, str) or not re.fullmatch(r"v\d+\.\d+\.\d+", candidate):
+            return None
+        return tuple(map(int, candidate[1:].split(".")))
+
+    stored_version, current_version = parse(value), parse(current)
+    return stored_version is not None and current_version is not None and stored_version[0] == current_version[0] and stored_version <= current_version
+
+
 def read_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
