@@ -282,6 +282,23 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(saved["checkpointer"]["synced_generation"], saved["checkpointer"]["generation"])
             self.assertEqual(saved["status"], "clean")
 
+    def test_timestamp_only_payload_does_not_rewrite_project(self):
+        from sync_continuity import sync_context
+
+        with sync_fixture_root() as root:
+            fixture = ContinuityFixture(root)
+            snapshot = load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+            before = (fixture.context_dir / "project.json").read_bytes()
+            proposed = dict(snapshot["project"], updated_at="2030-01-01T00:00:00Z")
+
+            result = sync_context(
+                fixture.repo, fixture.context_id, snapshot, proposed,
+                writer_session_id="sync-one", mei_root=fixture.mei,
+            )
+
+            self.assertEqual(result["status"], "noop")
+            self.assertEqual((fixture.context_dir / "project.json").read_bytes(), before)
+
     def test_lifecycle_event_has_no_prompt_parameter_or_persisted_prompt(self):
         import inspect
         from sync_continuity import handle_lifecycle_event

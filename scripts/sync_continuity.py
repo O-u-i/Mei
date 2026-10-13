@@ -149,7 +149,11 @@ def _sync_locked(
     project_raw = _record_bytes(proposed_project, "continuity-project.schema.json", project_path, MAX_PROJECT_BYTES)
     _stable_ref_status(Path(repo_root), proposed_project["stable_refs"])
     changes = _changes(current["project"], proposed_project)
-    if not changes["added"] and not changes["updated"] and current["status"] == "clean":
+    semantic_changed = bool(changes["added"] or changes["updated"])
+    if not semantic_changed:
+        # Timestamp-only payloads do not rewrite semantic state or count as a sync.
+        project_raw = project_path.read_bytes()
+    if not semantic_changed and current["status"] == "clean":
         return {
             "status": "noop",
             "repo_id": current["repo_id"],
