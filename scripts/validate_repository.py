@@ -58,7 +58,7 @@ def check_episodic_references(entry: dict, root: Path) -> None:
 def validate_repository(root: Path = ROOT) -> None:
     local_paths = check_local_paths(root)
     current_version = version(root)
-    if current_version != "v1.0.0":
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", current_version):
         raise ValueError(f"unexpected Mei version: {current_version}")
     if f"Mei {current_version}" not in (root / "README.md").read_text(encoding="utf-8"):
         raise ValueError("README version differs from VERSION")

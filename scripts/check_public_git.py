@@ -35,16 +35,21 @@ PUBLIC_FILES = frozenset(
         "schemas/memory.schema.json",
         "schemas/skill.schema.json",
         "schemas/trajectory.schema.json",
+        "schemas/continuity-checkpointer.schema.json",
+        "schemas/continuity-index.schema.json",
+        "schemas/continuity-project.schema.json",
         "scripts/_common.py",
         "scripts/audit_skill.py",
         "scripts/archive_trajectory.py",
         "scripts/check_public_git.py",
+        "scripts/check_continuity.py",
         "scripts/init_local.py",
         "scripts/normalize_trajectory.py",
         "scripts/rebuild_registry.py",
         "scripts/validate_repository.py",
         "scripts/validate_trajectory.py",
         "tests/test_v0.py",
+        "tests/test_continuity.py",
     }
 )
 SKELETON_PATH = re.compile(r"^(?:memory|skills|trajectories|evals|logs)/(?:[^/]+/)*\.gitkeep$")

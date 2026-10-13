@@ -55,6 +55,7 @@ class V0ContractTests(unittest.TestCase):
             for name in ("VERSION", "README.md", ".codex/config.example.toml"):
                 shutil.copyfile(ROOT / name, root / name)
             initialize(root, root / "codex")
+            current_version = (root / "VERSION").read_text(encoding="utf-8").strip()
             local_paths = root / "local" / "paths.toml"
             old_skills_root = json.dumps(str(root / "codex" / "skills"))
             new_skills_root = json.dumps(str(root / "agents" / "skills"))
@@ -66,12 +67,12 @@ class V0ContractTests(unittest.TestCase):
             skill_file.write_text("name: example\n", encoding="utf-8")
             # JSON is also YAML; keep this synthetic registry independent of local skills.
             skill = {"id": "example", "path": str(skill_file), "status": "active", "description": "Synthetic skill"}
-            skills.write_text(json_text({"version": "v1.0.0", "skills": [skill]}), encoding="utf-8")
+            skills.write_text(json_text({"version": current_version, "skills": [skill]}), encoding="utf-8")
             validate_repository(root)
-            skills.write_text(json_text({"version": "v1.0.0", "skills": [skill, skill]}), encoding="utf-8")
+            skills.write_text(json_text({"version": current_version, "skills": [skill, skill]}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "duplicate skill id"):
                 validate_repository(root)
-            skills.write_text(json_text({"version": "v1.0.0", "skills": [dict(skill, path=str(root / 'missing.md'))]}), encoding="utf-8")
+            skills.write_text(json_text({"version": current_version, "skills": [dict(skill, path=str(root / 'missing.md'))]}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "active skill missing"):
                 validate_repository(root)
 

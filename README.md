@@ -1,8 +1,8 @@
-# Mei v1.0.0
+# Mei v1.1.0
 
 **Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
-**Version:** [v1.0.0](VERSION) · **Status:** active
+**Version:** [v1.1.0](VERSION) · **Status:** active
 
 ## What works now
 
@@ -12,6 +12,27 @@
 | Check | Python scripts validate the schema, check for some secret patterns, and normalize a trajectory while retaining its source hash. Human privacy review is still required. |
 | Review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating a candidate memory. |
 | Reuse | Approved records enter `memory/canonical/` and are indexed by `registry/memory.yaml` for selective, read-only retrieval by later project tasks. |
+
+### Continuity read
+
+The read-only continuity loader selects one repository/context pair. It
+reads the Git-ignored `registry/continuity.yaml` index and the selected
+`memory/continuity/<repo-id>/<context-id>/project.json` plus
+`checkpointer.json`, validates containment, schemas, privacy backstops and
+hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, or `conflict`.
+It never repairs state, writes a hook marker, or touches candidates,
+canonical memory, registries, or installed skills. GUI and TUI callers use the
+same public loader. Host-specific adapters are not included.
+
+For a configured local checkout, inspect one context with:
+
+```text
+python scripts/check_continuity.py --repo-root <repository-root> --context-id <id>
+```
+
+The reader derives the continuity root from the Mei checkout passed as
+`--mei-root` (the script defaults to its own checkout), so no nested vault or
+additional memory writer is introduced.
 
 Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version.
 
@@ -95,4 +116,4 @@ For a rejection, use `--decision rejected` with the actual review reason. The ar
 
 ## Publication boundary
 
-The [`.gitignore`](.gitignore) uses a public allowlist. The six reviewed Archify diagram files linked above are included alongside the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and five named policies. Specific files under `memory/`, `skills/`, and `trajectories/` remain local; new policy files, other `docs/` content, local configuration, generated registries, browser evidence, reports, and logs are excluded until separately reviewed. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.
+The [`.gitignore`](.gitignore) uses a public allowlist. The six reviewed Archify diagram files linked above are included alongside the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and five named policies. Specific files under `memory/`, `skills/`, and `trajectories/` remain local. Plans, phase receipts, research notes, and other diagrams under `docs/` also remain local. Local configuration, generated registries (including `registry/continuity.yaml`), continuity records, browser evidence, reports, logs, and new policy files are excluded. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.

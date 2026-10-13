@@ -24,6 +24,9 @@
 !/schemas/memory.schema.json
 !/schemas/skill.schema.json
 !/schemas/trajectory.schema.json
+!/schemas/continuity-project.schema.json
+!/schemas/continuity-checkpointer.schema.json
+!/schemas/continuity-index.schema.json
 !/scripts/
 /scripts/**
 !/scripts/_common.py
@@ -35,6 +38,7 @@
 !/scripts/rebuild_registry.py
 !/scripts/validate_repository.py
 !/scripts/validate_trajectory.py
+!/scripts/check_continuity.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -53,9 +57,11 @@
 !/docs/architecture/memory-promotion.workflow.json
 !/docs/architecture/memory-promotion.html
 !/docs/architecture/memory-promotion.svg
+# Planning, research, receipts, and other diagrams remain local.
 !/tests/
 /tests/**
 !/tests/test_v0.py
+!/tests/test_continuity.py
 !/evals/
 !/evals/**/
 /evals/**

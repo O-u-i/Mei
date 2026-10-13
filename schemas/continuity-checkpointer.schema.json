@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei continuity checkpointer v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repo_id",
+    "context_id",
+    "writer_session_id",
+    "generation",
+    "synced_generation",
+    "dirty",
+    "needs_reconcile",
+    "last_event",
+    "updated_at",
+    "project_sha256",
+    "index_sha256",
+    "index_lines",
+    "index_bytes",
+    "last_conflict"
+  ],
+  "properties": {
+    "schema_version": {"const": "v0.1.0"},
+    "repo_id": {"type": "string", "pattern": "^repo-[a-f0-9]{32}$"},
+    "context_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"},
+    "writer_session_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "generation": {"type": "integer", "minimum": 0},
+    "synced_generation": {"type": "integer", "minimum": 0},
+    "dirty": {"type": "boolean"},
+    "needs_reconcile": {"type": "boolean"},
+    "last_event": {"type": "string", "minLength": 1, "maxLength": 200},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "project_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "index_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "index_lines": {"type": "integer", "minimum": 1, "maximum": 2048},
+    "index_bytes": {"type": "integer", "minimum": 1, "maximum": 262144},
+    "last_conflict": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["expected_generation", "observed_generation", "required_action"],
+      "properties": {
+        "expected_generation": {"type": "integer", "minimum": 0},
+        "observed_generation": {"type": "integer", "minimum": 0},
+        "expected_project_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "observed_project_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "writer_session_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "required_action": {"enum": ["reread", "sync", "reconcile"]}
+      }
+    }
+  }
+}

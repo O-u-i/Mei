@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei continuity index v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "version", "entries"],
+  "properties": {
+    "schema_version": {"const": "v0.1.0"},
+    "version": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "entries": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repo_id", "context_id", "project_path", "checkpointer_path", "status"],
+        "properties": {
+          "repo_id": {"type": "string", "pattern": "^repo-[a-f0-9]{32}$"},
+          "context_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"},
+          "project_path": {"type": "string", "minLength": 1, "maxLength": 500},
+          "checkpointer_path": {"type": "string", "minLength": 1, "maxLength": 500},
+          "status": {"enum": ["active", "blocked", "completed"]}
+        }
+      }
+    }
+  }
+}
