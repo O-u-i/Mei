@@ -1,21 +1,25 @@
 # Mei v1.4.0
 
-**Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
+**Mei is a local-first system for carrying agent memory across projects.** Personal memory uses a bounded `MEMORY.md` index plus Markdown detail notes; reviewed JSON memory and Curator promotion remain available for governed claims. The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
 **Version:** [v1.4.0](VERSION) · **Status:** active
 
-## What works now
+## Current behavior and direction
 
 | Stage | Current behavior |
 | --- | --- |
-| Capture | A project task may create one redacted JSON trajectory in `trajectories/inbox/`. Export is a deliberate action, not an automatic session hook. |
-| Check | Python scripts validate the schema, check for some secret patterns, and normalize a trajectory while retaining its source hash. Human privacy review is still required. |
-| Review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating a candidate memory. |
-| Reuse | Approved records enter `memory/canonical/` and are indexed by `registry/memory.yaml` for selective, read-only retrieval by later project tasks. |
+| Current read | The released reader selects continuity state and reviewed JSON memory by their existing indexes. The Markdown-first reader and note doctor are planned for Phase 6. |
+| Current capture | A task may create one redacted JSON trajectory when a sensitive, cross-project, or ambiguous claim needs Curator review. Export is deliberate, not an automatic session hook. |
+| Current review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating or promoting a governed memory record. |
+| Direction | `memory/markdown/MEMORY.md` plus detail notes will become the personal-memory hot path; governed JSON and Curator review remain the audit path. |
 
 ### Continuity read and checkpoint
 
-The read-only continuity loader selects one repository/context pair. It
+The read-only continuity loader selects one repository/context pair. The
+IPS-0.4 target is for GUI and TUI startup to use the same Mei root by default
+while keeping `CODEX_HOME` for host authentication and runtime state. In the
+current v1.4.0 release, host lifecycle wiring remains an opt-in adapter seam;
+the loader
 reads the Git-ignored `registry/continuity.yaml` index and the selected
 `memory/continuity/<repo-id>/<context-id>/project.json` plus
 `checkpointer.json`, validates containment, schemas, privacy backstops and
@@ -185,9 +189,9 @@ python -m unittest discover -s tests -v
 python scripts/validate_repository.py
 ```
 
-`init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Codex home, personal skills directory, and inbox paths **for this computer**. The generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
+`init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Markdown memory root, GUI/TUI Codex homes and legacy memory sources, personal skills directory, and inbox paths **for this computer**. Optional Obsidian keys point to the existing vault and a vault-relative Mei namespace. The generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
 
-To connect a project, configure that project's local agent instructions to locate **your own Mei checkout** and read `registry/memory.yaml` only when relevant. Give the project write access only to `trajectories/inbox/`; reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
+To connect a project, configure that project's local agent instructions to locate **your own Mei checkout**, read `registry/memory.yaml` when reviewed JSON memory is relevant, and adopt the planned `memory/markdown/MEMORY.md` reader only after the Phase 6 interface exists. Give the project write access only to `trajectories/inbox/`; a future personal-memory profile will have a separate bounded Markdown write scope. Reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
 
 After an eligible project task finishes, ask for an export explicitly. A reusable instruction is:
 
@@ -215,7 +219,7 @@ For a rejection, use `--decision rejected` with the actual review reason. The ar
 | Path | Purpose |
 | --- | --- |
 | [`registry/`](registry/) | Memory index and personal skill inventory |
-| [`memory/`](memory/) | Candidate, reviewed, and archived memory records |
+| [`memory/`](memory/) | Markdown personal memory, continuity state, candidate, reviewed, and archived records |
 | [`trajectories/`](trajectories/) | Inbox and active normalized records; finalized source and normalized records under archive; processed and rejected folders are legacy locations |
 | [`schemas/`](schemas/) | JSON Schemas for trajectories, memories, and skill metadata |
 | [`scripts/`](scripts/) | Validation, normalization, and registry rebuild commands |

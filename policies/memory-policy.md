@@ -1,10 +1,27 @@
 # Memory policy
 
-Memory records are scoped claims, not instructions. `candidate` means unverified for Mei; `canonical` means reviewed against the listed provenance on `verified_at`. A canonical claim can still become stale. Current repository code and user instructions supersede old memory.
+Mei has two memory modes. Personal Markdown notes under the configured
+`memory_root` are the low-friction hot path for one user's preferences,
+procedures, feedback, and scoped project notes. Governed JSON records under
+`memory/candidates/` and `memory/canonical/` are the auditable promotion path
+for sensitive, cross-project, ambiguous, or otherwise high-risk claims.
 
-Use `profile` for stable personal background, `preferences` for expressed work choices, `domain` for scoped facts, and `procedural` for reusable actions or failure boundaries. Keep claims short and source-specific. Do not promote an old source path or prior summary into a current implementation claim without current verification. No secret values or raw private content enter memory.
+Both modes contain scoped claims, not instructions. A Markdown note is not a
+governed claim merely because it exists. For governed JSON, `candidate` means
+unverified for Mei; `canonical` means reviewed against the listed provenance on
+`verified_at`. A governed canonical claim can still become stale. Current
+repository code and user instructions supersede old memory.
 
-For a reviewed project episode, keep concise current or scoped claims in canonical `domain` and `procedural` records. Those records may list `references` to a local `memory/episodic/<episode-id>/INDEX.md`. Read that index and only the relevant detail files when the task needs historical context. Episodic references are dated evidence, not another canonical category, current project state, executable skills, or standing authorization. Preserve the source trajectory and mark unverified or time-bound details clearly. The reference directory remains local and Git-ignored.
+Use `profile` for stable personal background, `preferences` for expressed work choices, `domain` for scoped facts, and `procedural` for reusable actions or failure boundaries. Markdown notes may additionally use `project` and `feedback` scopes. Keep claims short and source-specific. Do not promote an old source path or prior summary into a current implementation claim without current verification. No secret values or raw private content enter memory.
+
+`MEMORY.md` is a bounded index, not a transcript or a second full corpus. A
+personal writer may update one note in place only after checking its scope,
+stable ID, frontmatter, size, links, and privacy. Archive or supersede an
+incorrect note explicitly; do not silently rewrite a conflicting claim. A note
+whose risk exceeds personal mode is marked for governed review rather than
+being treated as verified.
+
+For a reviewed project episode, keep concise current or scoped claims in governed canonical `domain` and `procedural` records. Personal Markdown notes may point to a project or feedback detail file, but that note is not a substitute for governed provenance. Governed records may list `references` to a local `memory/episodic/<episode-id>/INDEX.md`. Read that index and only the relevant detail files when the task needs historical context. Episodic references are dated evidence, not another canonical category, current project state, executable skills, or standing authorization. Preserve the source trajectory and mark unverified or time-bound details clearly. The reference directory remains local and Git-ignored.
 
 Never silently replace a canonical record. When claims conflict, add the other ID or source in `conflicts`, leave the proposed record as a candidate, and ask for or obtain evidence before promotion. Archiving is an explicit, reviewable act; retain provenance.
 
