@@ -44,6 +44,15 @@ SECRET_PATTERNS = (
 )
 FORBIDDEN_KEYS = {"prompt", "raw_prompt", "transcript", "raw_transcript", "tool_output", "memory_body"}
 REPARSE_POINT = stat.FILE_ATTRIBUTE_REPARSE_POINT
+_RETIRED_FIELDS = {
+    "goal": "Completed task; transient state retired.",
+    "decisions": [], "constraints": [], "blockers": [],
+    "next_step": "No active task. Start a new context for new work.",
+}
+
+
+def _completion_id(repo_id: str, context_id: str) -> str:
+    return "continuity-" + hashlib.sha256(f"{repo_id}\n{context_id}".encode("utf-8")).hexdigest()
 
 
 class ContinuityError(ValueError):
@@ -390,8 +399,6 @@ def load_context(
         raise ContinuityError("continuity record repo_id does not match selected repository")
     if project["context_id"] != context_id or checkpointer["context_id"] != context_id:
         raise ContinuityError("continuity record context_id does not match selected context")
-    if project["status"] != entry["status"]:
-        raise ContinuityError("continuity index status differs from project status")
     if checkpointer["synced_generation"] > checkpointer["generation"]:
         raise ContinuityError("checkpointer synced_generation exceeds generation")
 
@@ -413,6 +420,25 @@ def load_context(
         diagnostics.append("checkpointer requires reconciliation")
         pair_needs_reconcile = True
 
+    completion = checkpointer.get("completion")
+    if project["status"] == "completed" and (checkpointer["dirty"] or checkpointer["synced_generation"] != checkpointer["generation"]):
+        diagnostics.append("completed context bookkeeping is not synchronized")
+        pair_needs_reconcile = True
+    if project["status"] != entry["status"]:
+        # A terminal overlay keeps the shared locator/index hash unchanged.
+        # An interrupted completion must remain readable for explicit recovery.
+        if project["status"] != "completed" or (completion is None and checkpointer["project_sha256"] == project_sha256):
+            raise ContinuityError("continuity index status differs from project status")
+    if completion is not None and project["status"] != "completed":
+        raise ContinuityError("completion receipt requires a completed project")
+    if completion is not None:
+        if completion["trajectory_id"] != _completion_id(requested_repo_id, context_id):
+            raise ContinuityError("completion trajectory identity differs from selected repo/context")
+        if completion["source_generation"] >= checkpointer["generation"]:
+            raise ContinuityError("completion source generation must precede the checkpoint")
+        if completion["retired"] and any(project[key] != value for key, value in _RETIRED_FIELDS.items()):
+            raise ContinuityError("retired completion still contains transient project state")
+
     stable_refs, stale_refs = _stable_ref_status(repo_root, project["stable_refs"])
     if stale_refs:
         diagnostics.append("one or more stable references are stale")
@@ -420,13 +446,15 @@ def load_context(
         status = "conflict"
     elif pair_needs_reconcile:
         status = "needs_reconcile"
+    elif project["status"] == "completed":
+        status = "retired" if completion and completion["retired"] else "completed"
     elif checkpointer["dirty"]:
         status = "dirty"
     elif stale_refs:
         status = "stale"
     else:
         status = "clean"
-    return {
+    result = {
         "status": status,
         "host": host,
         "repo_id": requested_repo_id,
@@ -444,6 +472,14 @@ def load_context(
         "diagnostics": diagnostics,
         "warnings": warnings,
     }
+    if project["status"] == "completed":
+        result["required_action"] = (
+            "explicit_reconcile" if status in {"needs_reconcile", "conflict"}
+            else "none" if status == "retired"
+            else "export_and_retire" if completion
+            else "review_completion"
+        )
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -42,6 +42,7 @@
 !/scripts/checkpoint_continuity.py
 !/scripts/continuity_adapters.py
 !/scripts/sync_continuity.py
+!/scripts/complete_continuity.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -68,6 +69,7 @@
 !/tests/test_checkpoint_continuity.py
 !/tests/test_adapters.py
 !/tests/test_sync_continuity.py
+!/tests/test_complete_continuity.py
 !/evals/
 !/evals/**/
 /evals/**
@@ -95,3 +97,11 @@
 !/logs/
 /logs/**
 !/logs/.gitkeep
+
+# Explicit local agent-rule/config exclusions, in addition to the allowlist.
+/AGENTS.md
+/AGENTS.override.md
+/.agents/
+/.codex/config.toml
+/.codex/rules/
+/.codex/skills/

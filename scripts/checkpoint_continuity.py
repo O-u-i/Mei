@@ -135,6 +135,8 @@ def _checkpoint_locked(
 ) -> dict[str, Any]:
     """Save a reviewed payload into the selected, already indexed context."""
     state = load_context(repo_root, context_id, mei_root=mei_root, remote=remote)
+    if state["project"]["status"] == "completed":
+        raise ContinuityError("completed contexts require the completion lifecycle, not checkpoint")
     root = Path(mei_root or ROOT)
     entry = next(e for e in state["index"]["entries"] if (e["repo_id"], e["context_id"]) == (state["repo_id"], context_id))
     project_path = _safe_relative_path(root, entry["project_path"], "project_path")

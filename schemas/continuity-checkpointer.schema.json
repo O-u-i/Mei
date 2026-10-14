@@ -35,6 +35,18 @@
     "index_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "index_lines": {"type": "integer", "minimum": 1, "maximum": 2048},
     "index_bytes": {"type": "integer", "minimum": 1, "maximum": 262144},
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trajectory_id", "trajectory_sha256", "source_project_sha256", "source_generation", "retired"],
+      "properties": {
+        "trajectory_id": {"type": "string", "pattern": "^continuity-[a-f0-9]{64}$"},
+        "trajectory_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_project_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_generation": {"type": "integer", "minimum": 0},
+        "retired": {"type": "boolean"}
+      }
+    },
     "last_conflict": {
       "type": ["object", "null"],
       "additionalProperties": false,

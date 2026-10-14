@@ -19,7 +19,8 @@ The read-only continuity loader selects one repository/context pair. It
 reads the Git-ignored `registry/continuity.yaml` index and the selected
 `memory/continuity/<repo-id>/<context-id>/project.json` plus
 `checkpointer.json`, validates containment, schemas, privacy backstops and
-hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, or `conflict`.
+hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, `conflict`,
+`completed`, or `retired`.
 It never repairs state or writes a hook marker. GUI and TUI callers use the
 same public loader through the Phase 4 host-facing adapters. The adapters are
 read-only Python entry points; they do not install GUI/TUI hooks or claim host
@@ -85,6 +86,61 @@ index. The writer only accepts an existing context and cannot create an index
 entry, write a trajectory, touch canonical or candidate memory, or install
 skills. This is an application-level path allowlist; the command neither
 configures nor proves an OS filesystem profile or ACL.
+
+### Completion and Curator bridge
+
+Phase 5 exposes four functions in `scripts/complete_continuity.py`:
+`completion_checkpoint`, `export_completed_trajectory`,
+`retire_completed_context`, and read-only `curator_handoff`.
+The caller explicitly reviews an eligible completed task and its redacted
+trajectory before setting `privacy_reviewed=True`. This is a human review
+acknowledgement, not a semantic privacy detector or proof that the task succeeded.
+
+Completion binds a deterministic repo/context trajectory ID and exact export
+hash in an optional bounded technical checkpointer receipt. It marks the project
+completed without changing the shared continuity index or invalidating unrelated
+contexts. A terminal overlay is accepted only with this receipt or an observable
+interrupted pair. Old active/blocked pairs remain readable without migration.
+The supplied trajectory ID is replaced by the context-owned ID; source generation,
+source-project hash and a portable locator are added to result evidence. Leave
+room for this evidence entry within the existing trajectory schema limits.
+
+Export atomically creates one immutable `trajectories/inbox/<id>.json` (64 KiB
+hard cap). Identical retry, including after Curator archival, finds the existing
+source; changed content or duplicate sources require review. Publication uses a
+same-directory temporary file and an atomic no-overwrite hard link; filesystems
+without hard-link support fail visibly rather than weakening this guarantee.
+Neither completion nor export writes normalized records, candidates, canonical
+memory or `registry/memory.yaml`.
+
+After export, a new GUI/TUI session can identify `completed` and explicitly retire
+the context. Retirement verifies the export hash, clears task-local semantic
+fields, and keeps stable references plus a small completed tombstone and the
+technical receipt. It does not delete files or create another handoff store.
+Completed IDs cannot host new tasks. Ordinary checkpoint/sync rejects them, and
+lifecycle signals do not make a healthy terminal context dirty again.
+
+```text
+python scripts/complete_continuity.py checkpoint --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-snapshot.json> --trajectory <reviewed-trajectory.json> --writer-session-id <session-id> --privacy-reviewed
+python scripts/complete_continuity.py export --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <new-completed-snapshot.json> --trajectory <reviewed-trajectory.json>
+python scripts/complete_continuity.py retire --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-completed-snapshot.json> --writer-session-id <session-id>
+python scripts/complete_continuity.py curator --repo-root <repository-root> --context-id <id> --mei-root <mei-root>
+```
+
+Re-read a snapshot after every continuity mutation. Conflict exits 2,
+reconciliation or pending export exits 3, and lock timeout exits 4. An interrupted
+completion/retirement pair remains `needs_reconcile`: use a fresh snapshot,
+the same reviewed trajectory (or its exported source), `checkpoint --reconcile`
+and explicit privacy review, then retry retirement with another fresh snapshot.
+The source digest is a locator/binding, not a retained copy or proof of the
+retired source's claims; Curator must still verify independent evidence.
+
+The Curator handoff reports the source path/hash and outstanding privacy,
+provenance, duplicate, conflict, currentness and explicit-promotion gates. It
+does not invoke normalization or promotion. Follow the existing separate Curator
+workflow below. Real-context migration, host hooks/ACLs and human acceptance have
+not been exercised by the synthetic Phase 5 tests. Obsidian work is Phase 6 and
+is not implemented here. `VERSION` remains unchanged; this is not a release.
 
 Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version. Existing same-major local registry versions remain readable across a Mei minor release and are not rewritten by validation; generated registries update when their owner explicitly rebuilds them.
 

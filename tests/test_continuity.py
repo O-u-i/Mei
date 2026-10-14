@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import unittest
 import uuid
@@ -31,6 +30,28 @@ def write_json(path: Path, value: dict) -> bytes:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return data
+
+
+def run_mklink_junction(link: Path, target: Path) -> subprocess.CompletedProcess:
+    """Capture native mklink output as bytes; decode only diagnostic text."""
+    return subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+    )
+
+
+def process_diagnostic(result: subprocess.CompletedProcess) -> str:
+    """Render possibly missing or non-UTF-8 process streams without losing capture."""
+    parts = []
+    for stream in (result.stderr, result.stdout):
+        if stream is None:
+            continue
+        if isinstance(stream, bytes):
+            stream = stream.decode("utf-8", errors="replace")
+        stream = stream.strip()
+        if stream:
+            parts.append(stream)
+    return " | ".join(parts)
 
 
 def fixture_project(repo_id: str, context_id: str = "shared") -> dict:
@@ -105,10 +126,8 @@ class ContinuityFixture:
 def fixture_root():
     root = ROOT / ".tmp" / "pytest" / f"continuity-{uuid.uuid4().hex}"
     root.mkdir(parents=True)
-    try:
-        yield root
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+    # Keep synthetic verification evidence; the repository forbids batch deletion.
+    yield root
 
 
 class ContinuityTests(unittest.TestCase):
@@ -474,13 +493,9 @@ class ContinuityTests(unittest.TestCase):
             try:
                 os.symlink(real_context, fixture.context_dir, target_is_directory=True)
             except (OSError, NotImplementedError) as symlink_error:
-                result = subprocess.run(
-                    ["cmd.exe", "/d", "/c", "mklink", "/J", str(fixture.context_dir), str(real_context)],
-                    capture_output=True,
-                    text=True,
-                )
+                result = run_mklink_junction(fixture.context_dir, real_context)
                 if result.returncode:
-                    detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                    detail = process_diagnostic(result) or f"exit code {result.returncode}"
                     self.skipTest(
                         f"symlink and junction creation are unavailable on this Windows host: "
                         f"os.symlink: {symlink_error}; mklink /J: {detail}"

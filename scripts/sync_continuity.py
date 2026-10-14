@@ -102,6 +102,8 @@ def _sync_locked(
     if snapshot.get("repo_id") != repo_id_for(repo_root, remote) or snapshot.get("context_id") != context_id:
         raise ContinuityError("snapshot identity does not match selected repo/context")
     current = load_context(repo_root, context_id, mei_root=mei_root, remote=remote)
+    if current["project"]["status"] == "completed":
+        raise ContinuityError("completed contexts require the completion lifecycle, not sync")
     base_generation, base_project_sha256, base_index_sha256 = _snapshot_base(snapshot)
     if (
         base_generation != current["checkpointer"]["generation"]
@@ -269,6 +271,12 @@ def _lifecycle_locked(
     remote: str | None = None,
 ) -> dict[str, Any]:
     current = load_context(repo_root, context_id, mei_root=mei_root, remote=remote)
+    if current["status"] in {"completed", "retired"}:
+        return {
+            "event": event, "allow": True, "recorded": False,
+            "reason": "completed_context", "status": current["status"],
+            "generation": current["checkpointer"]["generation"],
+        }
     if event == "precompact_manual":
         allow = current["status"] == "clean"
         return {
