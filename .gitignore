@@ -40,6 +40,7 @@
 !/scripts/validate_trajectory.py
 !/scripts/check_continuity.py
 !/scripts/checkpoint_continuity.py
+!/scripts/continuity_adapters.py
 !/scripts/sync_continuity.py
 !/policies/
 /policies/**
@@ -65,6 +66,7 @@
 !/tests/test_v0.py
 !/tests/test_continuity.py
 !/tests/test_checkpoint_continuity.py
+!/tests/test_adapters.py
 !/tests/test_sync_continuity.py
 !/evals/
 !/evals/**/

@@ -1,8 +1,8 @@
-# Mei v1.3.0
+# Mei v1.4.0
 
 **Mei is a local-first system for carrying reviewed agent experience across projects.** The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
-**Version:** [v1.3.0](VERSION) · **Status:** active
+**Version:** [v1.4.0](VERSION) · **Status:** active
 
 ## What works now
 
@@ -21,7 +21,23 @@ reads the Git-ignored `registry/continuity.yaml` index and the selected
 `checkpointer.json`, validates containment, schemas, privacy backstops and
 hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, or `conflict`.
 It never repairs state or writes a hook marker. GUI and TUI callers use the
-same public loader. Host-specific adapters are not included.
+same public loader through the Phase 4 host-facing adapters. The adapters are
+read-only Python entry points; they do not install GUI/TUI hooks or claim host
+ACL enforcement.
+
+GUI and TUI callers can select the same context through the shared adapter
+module:
+
+```python
+from scripts.continuity_adapters import read_gui_context, read_tui_context
+
+gui_state = read_gui_context(repository_root, "shared", mei_root=mei_root)
+tui_state = read_tui_context(repository_root, "shared", mei_root=mei_root)
+```
+
+Both calls return the loader payload, including the selected `repo_id`,
+`context_id`, live repository facts, status, and diagnostics. They never repair
+state or write continuity, trajectory, candidate, canonical, or registry data.
 
 For a configured local checkout, inspect one context with:
 

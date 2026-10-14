@@ -18,7 +18,10 @@ from urllib.parse import urlsplit
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-from _common import ROOT, supports_registry_version
+try:  # Support both direct script execution and package imports.
+    from ._common import ROOT, supports_registry_version
+except ImportError:  # pragma: no cover - direct execution uses the script path.
+    from _common import ROOT, supports_registry_version
 
 SCHEMA_VERSION = "v0.1.0"
 MAX_INDEX_BYTES = 262_144
