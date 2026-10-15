@@ -27,5 +27,6 @@
     "mei_generated": {"type": "boolean"},
     "source_path": {"type": "string"},
     "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
-  }
+  },
+  "allOf": [{"if": {"not": {"properties": {"review_required": {"const": true}}, "required": ["review_required"]}}, "then": {"properties": {"provenance": {"minItems": 1}}}}]
 }

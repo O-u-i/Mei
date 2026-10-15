@@ -29,8 +29,10 @@ def save_handoff(
         repo_root, context_id, snapshot, project,
         writer_session_id=writer_session_id, mei_root=mei_root, reconcile=reconcile,
     )
-    if result.get("status") not in {"synced", "noop"} or not memory_draft:
+    if result.get("status") not in {"synced", "noop"}:
         return {"status": "handoff_" + result.get("status", "failed"), "continuity": result}
+    if not memory_draft:
+        return {"status": "handoff_saved" if result["status"] == "synced" else "handoff_noop", "continuity": result}
     required = ("target_type", "target_locator", "content", "scope", "source")
     if any(key not in memory_draft for key in required):
         raise ProposalError("memory_draft requires target_type, target_locator, content, scope and source")

@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from _common import ROOT, assert_unique_ids, check_private_content, read_json, validate_schema, version
-from memory_markdown import list_notes
+from memory_markdown import list_notes, rebuild_index
 
 
 def expected_registry(root: Path = ROOT) -> dict:
@@ -22,6 +22,7 @@ def expected_registry(root: Path = ROOT) -> dict:
 
 
 def rebuild(root: Path = ROOT) -> bool:
+    rebuild_index(root / "memory" / "markdown")
     target = root / "registry" / "memory.yaml"
     content = yaml.safe_dump(expected_registry(root), allow_unicode=True, sort_keys=False)
     if target.exists() and target.read_text(encoding="utf-8") == content:

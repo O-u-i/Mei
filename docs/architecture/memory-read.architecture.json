@@ -2,21 +2,158 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Selective memory retrieval",
-    "quality_profile": "showcase"
+    "title": "Mei v2.0.0 · Shared GUI / TUI Reads",
+    "locale": "en",
+    "quality_profile": "standard",
+    "viewBox": [
+      2048,
+      1320
+    ],
+    "legend": {
+      "mode": "hidden"
+    }
   },
   "components": [
-    { "id": "projectTask", "type": "external", "label": "Project task", "sublabel": "when memory is relevant", "pos": [40, 260], "size": [180, 76] },
-    { "id": "memoryIndex", "type": "backend", "label": "Memory index", "sublabel": "registry/memory.yaml", "pos": [330, 260], "size": [190, 76] },
-    { "id": "selectedRecords", "type": "database", "label": "Selected records", "sublabel": "memory/canonical/", "pos": [630, 260], "size": [190, 76] },
-    { "id": "taskContext", "type": "frontend", "label": "Task context", "sublabel": "read-only evidence", "pos": [930, 260], "size": [190, 76] }
+    {
+      "id": "gui",
+      "type": "frontend",
+      "label": "Codex GUI",
+      "sublabel": "Independent CODEX_HOME",
+      "pos": [
+        110,
+        240
+      ],
+      "size": [
+        300,
+        100
+      ]
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "Codex TUI",
+      "sublabel": "Independent CODEX_HOME",
+      "pos": [
+        110,
+        760
+      ],
+      "size": [
+        300,
+        100
+      ]
+    },
+    {
+      "id": "adapter",
+      "type": "backend",
+      "label": "Shared read adapter",
+      "sublabel": "Explicit repo / context",
+      "pos": [
+        650,
+        500
+      ],
+      "size": [
+        330,
+        110
+      ]
+    },
+    {
+      "id": "index",
+      "type": "database",
+      "label": "MEMORY.md",
+      "sublabel": "Generated bounded index",
+      "pos": [
+        1260,
+        240
+      ],
+      "size": [
+        330,
+        100
+      ]
+    },
+    {
+      "id": "notes",
+      "type": "database",
+      "label": "Markdown / YAML",
+      "sublabel": "Active, reviewed provenance",
+      "pos": [
+        1260,
+        760
+      ],
+      "size": [
+        330,
+        100
+      ]
+    },
+    {
+      "id": "continuity",
+      "type": "database",
+      "label": "Continuity JSON",
+      "sublabel": "Task protocol; not memory",
+      "pos": [
+        635,
+        1010
+      ],
+      "size": [
+        360,
+        110
+      ]
+    }
   ],
   "connections": [
-    { "id": "findIndex", "from": "projectTask", "to": "memoryIndex", "label": "locate index" },
-    { "id": "selectRecords", "from": "memoryIndex", "to": "selectedRecords", "label": "select relevant records", "labelAt": [575, 350] },
-    { "id": "readContext", "from": "selectedRecords", "to": "taskContext", "label": "read-only context" }
+    {
+      "id": "gui-read",
+      "from": "gui",
+      "to": "adapter",
+      "label": "SessionStart / CLI"
+    },
+    {
+      "id": "tui-read",
+      "from": "tui",
+      "to": "adapter",
+      "label": "SessionStart / CLI"
+    },
+    {
+      "id": "bound-index",
+      "from": "adapter",
+      "to": "index",
+      "label": "validate index"
+    },
+    {
+      "id": "selected-note",
+      "from": "adapter",
+      "to": "notes",
+      "label": "select notes by ID"
+    },
+    {
+      "id": "task-snapshot",
+      "from": "adapter",
+      "to": "continuity",
+      "label": "fresh snapshot",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        815,
+        790
+      ]
+    }
   ],
   "cards": [
-    { "dot": "cyan", "title": "Retrieval boundary", "items": ["The agent opens only records relevant to the project task.", "Records are evidence, not instructions or guaranteed current facts."] }
+    {
+      "dot": "cyan",
+      "title": "No Obsidian required",
+      "items": [
+        "Read, search, doctor and proposals work from the CLI.",
+        "The vault opens canonical files directly: no note copy."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Excluded by default",
+      "items": [
+        "No archive, review_required, proposal or legacy JSON recall.",
+        "Hook trust and real cold-start acceptance are separate checks."
+      ]
+    }
   ]
 }

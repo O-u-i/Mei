@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1051" height="528" viewBox="0 0 1051 528" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase"><style><![CDATA[
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1320" data-mei-readable="2" viewBox="0 0 2048 1320" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="standard" data-theme="light" data-frag-archify-light="true"><style><![CDATA[
 /*
 JetBrains Mono variable WOFF2 subsets from Google Fonts service revision v24.
 These fixed bytes are shared by the viewer and its SVG/raster exports.
@@ -138,48 +138,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
        THEME VARIABLES — switch by toggling [data-theme] on <html>
        ========================================================== */
     :root,
-    [data-theme="dark"] {
-      --bg: #020617;
-      --grid: #1e293b;
-      --text: #ffffff;
-      --text-muted: #94a3b8;
-      --text-dim: #475569;
-      /* UI chrome and menu hints need more contrast than SVG .t-dim accents */
-      --text-faint: #7d8da1;
 
-      --panel: rgba(15, 23, 42, 0.5);
-      --panel-border: #1e293b;
-      --lane-fill: rgba(15, 23, 42, 0.22);
-      --lane-stroke: #334155;
-
-      --arrow: #64748b;
-      --arrow-emphasis: #34d399;
-
-      /* Opaque mask color used behind semi-transparent component fills
-         so the arrows drawn underneath are properly hidden. */
-      --mask: #0f172a;
-
-      --frontend-fill:    rgba(8, 51, 68, 0.4);
-      --frontend-stroke:  #22d3ee;
-      --backend-fill:     rgba(6, 78, 59, 0.4);
-      --backend-stroke:   #34d399;
-      --database-fill:    rgba(76, 29, 149, 0.4);
-      --database-stroke:  #a78bfa;
-      --cloud-fill:       rgba(120, 53, 15, 0.3);
-      --cloud-stroke:     #fbbf24;
-      --security-fill:    rgba(136, 19, 55, 0.4);
-      --security-stroke:  #fb7185;
-      --messagebus-fill:  rgba(251, 146, 60, 0.3);
-      --messagebus-stroke:#fb923c;
-      --external-fill:    rgba(30, 41, 59, 0.5);
-      --external-stroke:  #94a3b8;
-
-      --toolbar-bg:       rgba(15, 23, 42, 0.8);
-      --toolbar-border:   #334155;
-      --toolbar-text:     #e2e8f0;
-      --toolbar-hover:    rgba(15, 23, 42, 0.95);
-      --toolbar-menu-bg:  #0f172a;
-    }
 
     [data-theme="light"] {
       --bg: #f8fafc;
@@ -226,38 +185,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
        The variables also target a standalone exported SVG, whose
        root carries data-preset and data-theme directly.
        ========================================================== */
-    [data-preset="signal-flow"][data-theme="dark"] {
-      --bg: #030711;
-      --grid: #15233a;
-      --panel: rgba(6, 14, 28, 0.78);
-      --panel-border: #1d3350;
-      --lane-fill: rgba(9, 22, 40, 0.5);
-      --lane-stroke: #2c4564;
-      --text: #f5fbff;
-      --text-muted: #9eb0c7;
-      --text-dim: #52667f;
-      --text-faint: #7890ad;
-      --mask: #07101e;
-      --frontend-fill: rgba(6, 182, 212, 0.14);
-      --frontend-stroke: #67e8f9;
-      --backend-fill: rgba(16, 185, 129, 0.14);
-      --backend-stroke: #5eead4;
-      --database-fill: rgba(139, 92, 246, 0.16);
-      --database-stroke: #c4b5fd;
-      --cloud-fill: rgba(245, 158, 11, 0.13);
-      --cloud-stroke: #fcd34d;
-      --security-fill: rgba(244, 63, 94, 0.13);
-      --security-stroke: #fda4af;
-      --messagebus-fill: rgba(249, 115, 22, 0.13);
-      --messagebus-stroke: #fdba74;
-      --external-fill: rgba(71, 85, 105, 0.24);
-      --external-stroke: #a5b4c7;
-      --arrow: #7890ad;
-      --arrow-emphasis: #2dd4bf;
-      --toolbar-bg: rgba(7, 16, 30, 0.86);
-      --toolbar-border: #29415f;
-      --toolbar-menu-bg: #07101e;
-    }
+
 
     [data-preset="signal-flow"][data-theme="light"] {
       --bg: #f4f9fc;
@@ -295,40 +223,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
        the same semantic palette and geometry while trading glow for
        precise grid contrast, squared materials, and drafting marks.
        ========================================================== */
-    [data-preset="blueprint"][data-theme="dark"] {
-      --bg: #06131f;
-      --grid: #17425a;
-      --panel: rgba(7, 27, 43, 0.9);
-      --panel-border: #27627f;
-      --lane-fill: rgba(10, 43, 66, 0.36);
-      --lane-stroke: #34799a;
-      --text: #e3f6ff;
-      --text-muted: #91b8ca;
-      --text-dim: #557e92;
-      --text-faint: #739caf;
-      --mask: #0a2031;
-      --frontend-fill: rgba(26, 157, 193, 0.14);
-      --frontend-stroke: #66d9ef;
-      --backend-fill: rgba(31, 155, 124, 0.13);
-      --backend-stroke: #69dfbd;
-      --database-fill: rgba(120, 105, 196, 0.14);
-      --database-stroke: #b4a8ff;
-      --cloud-fill: rgba(197, 145, 43, 0.13);
-      --cloud-stroke: #ffd166;
-      --security-fill: rgba(199, 76, 104, 0.13);
-      --security-stroke: #ff8da1;
-      --messagebus-fill: rgba(207, 112, 49, 0.13);
-      --messagebus-stroke: #ffad66;
-      --external-fill: rgba(84, 119, 139, 0.18);
-      --external-stroke: #a7cad9;
-      --arrow: #78a3b7;
-      --arrow-emphasis: #64dfc1;
-      --toolbar-bg: rgba(7, 28, 45, 0.92);
-      --toolbar-border: #34799a;
-      --toolbar-text: #d8f3ff;
-      --toolbar-hover: rgba(18, 58, 83, 0.95);
-      --toolbar-menu-bg: #0a2031;
-    }
+
 
     [data-preset="blueprint"][data-theme="light"] {
       --bg: #edf7fa;
@@ -372,40 +267,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
        software chrome for paper, ink, ruled structure, and one
        restrained vermilion accent.
        ========================================================== */
-    [data-preset="editorial"][data-theme="dark"] {
-      --bg: #181611;
-      --grid: #39342a;
-      --panel: rgba(35, 31, 24, 0.96);
-      --panel-border: #625a4a;
-      --lane-fill: rgba(52, 46, 35, 0.46);
-      --lane-stroke: #726957;
-      --text: #f4eddf;
-      --text-muted: #b9ae9b;
-      --text-dim: #776e60;
-      --text-faint: #9d917e;
-      --mask: #231f18;
-      --frontend-fill: rgba(43, 133, 142, 0.16);
-      --frontend-stroke: #7fc6c7;
-      --backend-fill: rgba(63, 132, 92, 0.16);
-      --backend-stroke: #8fc29e;
-      --database-fill: rgba(117, 91, 141, 0.17);
-      --database-stroke: #c0a4d0;
-      --cloud-fill: rgba(170, 119, 49, 0.16);
-      --cloud-stroke: #d8ad68;
-      --security-fill: rgba(157, 69, 65, 0.17);
-      --security-stroke: #df9085;
-      --messagebus-fill: rgba(174, 79, 42, 0.16);
-      --messagebus-stroke: #df946f;
-      --external-fill: rgba(126, 115, 96, 0.18);
-      --external-stroke: #b8ad99;
-      --arrow: #948978;
-      --arrow-emphasis: #dd6b3d;
-      --toolbar-bg: rgba(35, 31, 24, 0.92);
-      --toolbar-border: #625a4a;
-      --toolbar-text: #eee5d5;
-      --toolbar-hover: #302a20;
-      --toolbar-menu-bg: #231f18;
-    }
+
 
     [data-preset="editorial"][data-theme="light"] {
       --bg: #f2eee5;
@@ -3063,35 +2925,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       /* Force the FULL light palette — including component fills/strokes and
          lane/arrow colors — so printing from dark theme doesn't put neon
          strokes and translucent dark fills on white paper. */
-      :root, [data-theme="dark"], [data-theme="light"] {
-        --bg: #ffffff;
-        --grid: transparent;
-        --panel: #ffffff;
-        --panel-border: #e2e8f0;
-        --text: #0f172a;
-        --text-muted: #475569;
-        --text-dim: #94a3b8;
-        --text-faint: #64748b;
-        --mask: #ffffff;
-        --lane-fill: rgba(248, 250, 252, 0.65);
-        --lane-stroke: #cbd5e1;
-        --arrow: #94a3b8;
-        --arrow-emphasis: #059669;
-        --frontend-fill:    rgba(34, 211, 238, 0.15);
-        --frontend-stroke:  #0891b2;
-        --backend-fill:     rgba(52, 211, 153, 0.18);
-        --backend-stroke:   #059669;
-        --database-fill:    rgba(167, 139, 250, 0.2);
-        --database-stroke:  #7c3aed;
-        --cloud-fill:       rgba(251, 191, 36, 0.18);
-        --cloud-stroke:     #d97706;
-        --security-fill:    rgba(251, 113, 133, 0.15);
-        --security-stroke:  #e11d48;
-        --messagebus-fill:  rgba(251, 146, 60, 0.15);
-        --messagebus-stroke:#ea580c;
-        --external-fill:    rgba(148, 163, 184, 0.18);
-        --external-stroke:  #64748b;
-      }
+
       body { background: #ffffff !important; padding: 0; }
       .container { max-width: none; }
       .toolbar, .diagram-nav, .focus-chip, .guided-views, .archify-toast, .no-print { display: none !important; }
@@ -3229,10 +3063,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cg fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='10' cy='10' r='3.1'/%3E%3Cpath d='M10 2.2v1.4M10 16.4v1.4M2.2 10h1.4M16.4 10h1.4M4.5 4.5l1 1M14.5 14.5l1 1M15.5 4.5l-1 1M5.5 14.5l-1 1'/%3E%3C/g%3E%3C/svg%3E");
       mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cg fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='10' cy='10' r='3.1'/%3E%3Cpath d='M10 2.2v1.4M10 16.4v1.4M2.2 10h1.4M16.4 10h1.4M4.5 4.5l1 1M14.5 14.5l1 1M15.5 4.5l-1 1M5.5 14.5l-1 1'/%3E%3C/g%3E%3C/svg%3E");
     }
-    [data-theme="dark"] #theme-icon {
-      -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M15.2 12.7A6.3 6.3 0 017.3 4.8a6.3 6.3 0 107.9 7.9Z' fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E");
-      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M15.2 12.7A6.3 6.3 0 017.3 4.8a6.3 6.3 0 107.9 7.9Z' fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E");
-    }
+
     #btn-present[aria-pressed="false"] #present-icon {
       -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.2 3.2h-4v4M12.8 3.2h4v4M7.2 16.8h-4v-4M12.8 16.8h4v-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");
       mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.2 3.2h-4v4M12.8 3.2h4v4M7.2 16.8h-4v-4M12.8 16.8h4v-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");
@@ -4941,7 +4772,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       svg [data-node-id], svg [data-edge-from], svg [data-detail], svg [data-detail-anchor], svg [data-legend-hit], svg { transition: none !important; }
     }
   ]]></style>
-        <title id="archify-diagram-title">Capture and review memory</title>
+        <title id="archify-diagram-title">Mei v2.0.0 · Approval and Safe Writes</title>
         <desc id="archify-diagram-description">A workflow diagram generated by Archify.</desc>
         <!-- Definitions -->
         <defs>
@@ -4966,15 +4797,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="995" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / Project task</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1914" height="350" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-dim" font-size="20" font-weight="600">01 / Current task / human review</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="995" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / Explicit Curator run</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="422" width="1914" height="350" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="444" class="t-dim" font-size="20" font-weight="600">02 / Unified write boundary</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="995" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-2-exception" x="46" y="306" width="983" height="92" rx="8" class="c-security-group" stroke-width="1"/>
-        <text x="54" y="322" class="t-security" font-size="10" font-weight="600">EX / Unresolved</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="792" width="1914" height="350" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-2-exception" x="46" y="798" width="1902" height="338" rx="8" class="c-security-group" stroke-width="1"/>
+        <text x="54" y="814" class="t-security" font-size="20" font-weight="600">EX / Failure and recovery</text>
 
         <!-- Phase headers -->
 
@@ -4983,140 +4814,325 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
         <!-- Edge paths -->
-        <path data-edge-from="review" data-edge-to="canonical" data-edge-label="approved" data-edge-key="0" data-edge-id="approve" data-composition-points="828,243;884.4,243" d="M 828 243 L 884.4 243" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="completed" data-edge-to="inbox" data-edge-key="1" data-edge-id="capture" data-composition-points="190,119;218,119" d="M 190 119 L 218 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="candidate" data-edge-to="review" data-edge-key="2" data-edge-id="check" data-composition-points="658,243;686,243" d="M 658 243 L 686 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="inbox" data-edge-to="normalize" data-edge-label="start Curator" data-edge-key="3" data-edge-id="curatorStart" data-composition-points="289,145;289,166;409,166;409,217" d="M 289 145 L 289 166 L 409 166 L 409 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="review" data-edge-to="hold" data-edge-label="unresolved" data-edge-key="4" data-edge-id="defer" data-composition-points="757,269;757,367;884.4,367" d="M 757 269 L 757 367 L 884.4 367" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="normalize" data-edge-to="candidate" data-edge-key="5" data-edge-id="draft" data-composition-points="488,243;516,243" d="M 488 243 L 516 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="canonical" data-edge-to="index" data-edge-label="validate" data-edge-key="6" data-edge-id="finish" data-composition-points="955.4,217;955.4,145" d="M 955.4 217 L 955.4 145" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="approve" data-edge-to="write" data-edge-label="P3 + --confirm" data-edge-key="0" data-edge-id="approve-write" data-composition-points="1401.6,242;1417.6,242;1417.6,412;1203.6,412;1203.6,566" d="M 1401.6 242 L 1417.6 242 L 1417.6 412 L 1203.6 412 L 1203.6 566" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="base" data-edge-to="stale" data-edge-label="target changed" data-edge-key="1" data-edge-id="base-stale" data-composition-points="510,612;20,612;20,982;510,982" d="M 510 612 L 20 612 L 20 982 L 510 982" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="base" data-edge-to="write" data-edge-label="both hashes match" data-edge-key="2" data-edge-id="base-write" data-composition-points="906,612;1005.5999999999999,612" d="M 906 612 L 1005.5999999999999 612" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="diff" data-edge-to="approve" data-edge-label="human review" data-edge-key="3" data-edge-id="diff-approve" data-composition-points="708,288;708,304;1203.6,304;1203.6,288" d="M 708 288 L 708 304 L 1203.6 304 L 1203.6 288" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="diff" data-edge-to="base" data-edge-label="reread targets" data-edge-key="4" data-edge-id="diff-base" data-composition-points="708,288;708,412;494,412;494,612;510,612" d="M 708 288 L 708 412 L 494 412 L 494 612 L 510 612" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="draft" data-edge-to="diff" data-edge-label="draft card" data-edge-key="5" data-edge-id="draft-diff" data-composition-points="444,242;510,242" d="M 444 242 L 510 242" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="index" data-edge-to="receipt" data-edge-label="approval history" data-edge-key="6" data-edge-id="index-receipt" data-composition-points="1656,566;1656,288" d="M 1656 566 L 1656 288" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="write" data-edge-to="index" data-edge-label="readback" data-edge-key="7" data-edge-id="write-index" data-composition-points="1203.6,658;1203.6,674;1656,674;1656,658" d="M 1203.6 658 L 1203.6 674 L 1656 674 L 1656 658" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="write" data-edge-to="recovery" data-edge-label="failure / interruption" data-edge-key="8" data-edge-id="write-recovery" data-composition-points="1203.6,658;1203.6,782;1417.6,782;1417.6,1092;1401.6,1092" d="M 1203.6 658 L 1203.6 782 L 1417.6 782 L 1417.6 1092 L 1401.6 1092" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
 
         <!-- Nodes -->
-        <g id="node-completed" data-node-id="completed" data-node-label="Task completed" tabindex="0" role="button" aria-label="Focus Task completed, Project task" aria-pressed="false" data-node-kind="external" data-node-context="Project task">
-          <title>Task completed · Project task</title>
-          <rect x="48" y="93" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="48" y="93" width="142" height="52" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(54 99) scale(0.6875)">
-            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
-            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+        <g id="node-draft" data-node-id="draft" data-node-label="P1 draft proposal" tabindex="0" role="button" aria-label="Focus P1 draft proposal, Current task / human review" aria-pressed="false" data-node-kind="frontend" data-node-context="Current task / human review">
+          <title>P1 draft proposal · Current task / human review</title>
+          <rect x="48" y="196" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="48" y="196" width="396" height="92" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(54 202) scale(0.6875)">
+            <rect x="2" y="3" width="12" height="10" rx="2"/>
+            <path d="M2 6.5h12"/>
+            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
+            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="119" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Task completed</text>
+          <text data-node-label="" x="246" y="250" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">P1 draft proposal</text>
         </g>
 
-        <g id="node-inbox" data-node-id="inbox" data-node-label="Trajectory inbox" tabindex="0" role="button" aria-label="Focus Trajectory inbox, Project task" aria-pressed="false" data-node-kind="database" data-node-context="Project task">
-          <title>Trajectory inbox · Project task</title>
-          <rect x="218" y="93" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="218" y="93" width="142" height="52" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(224 99) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-node-label="" x="289" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Trajectory inbox</text>
-        </g>
-
-        <g id="node-index" data-node-id="index" data-node-label="Rebuild index" tabindex="0" role="button" aria-label="Focus Rebuild index, Project task" aria-pressed="false" data-node-kind="backend" data-node-context="Project task">
-          <title>Rebuild index · Project task</title>
-          <rect x="884.4" y="93" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="884.4" y="93" width="142" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(890.4 99) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-node-label="" x="955.4" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Rebuild index</text>
-        </g>
-
-        <g id="node-normalize" data-node-id="normalize" data-node-label="Validate + normalize" tabindex="0" role="button" aria-label="Focus Validate + normalize, Explicit Curator run" aria-pressed="false" data-node-kind="backend" data-node-context="Explicit Curator run">
-          <title>Validate + normalize · Explicit Curator run</title>
-          <rect x="330" y="217" width="158" height="52" rx="6" class="c-mask"/>
-          <rect x="330" y="217" width="158" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(336 223) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-node-label="" x="409" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Validate + normalize</text>
-        </g>
-
-        <g id="node-candidate" data-node-id="candidate" data-node-label="Memory candidate" tabindex="0" role="button" aria-label="Focus Memory candidate, Explicit Curator run" aria-pressed="false" data-node-kind="database" data-node-context="Explicit Curator run">
-          <title>Memory candidate · Explicit Curator run</title>
-          <rect x="516" y="217" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="516" y="217" width="142" height="52" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(522 223) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-node-label="" x="587" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Memory candidate</text>
-        </g>
-
-        <g id="node-review" data-node-id="review" data-node-label="Evidence review" tabindex="0" role="button" aria-label="Focus Evidence review, Explicit Curator run" aria-pressed="false" data-node-kind="security" data-node-context="Explicit Curator run">
-          <title>Evidence review · Explicit Curator run</title>
-          <rect x="686" y="217" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="686" y="217" width="142" height="52" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(692 223) scale(0.6875)">
+        <g id="node-diff" data-node-id="diff" data-node-label="Preview + Diff" tabindex="0" role="button" aria-label="Focus Preview + Diff, Current task / human review" aria-pressed="false" data-node-kind="security" data-node-context="Current task / human review">
+          <title>Preview + Diff · Current task / human review</title>
+          <rect x="510" y="196" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="510" y="196" width="396" height="92" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(516 202) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" x="757" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Evidence review</text>
+          <text data-node-label="" x="708" y="250" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Preview + Diff</text>
         </g>
 
-        <g id="node-canonical" data-node-id="canonical" data-node-label="Canonical memory" tabindex="0" role="button" aria-label="Focus Canonical memory, Explicit Curator run" aria-pressed="false" data-node-kind="database" data-node-context="Explicit Curator run">
-          <title>Canonical memory · Explicit Curator run</title>
-          <rect x="884.4" y="217" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="884.4" y="217" width="142" height="52" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(890.4 223) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-node-label="" x="955.4" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Canonical memory</text>
-        </g>
-
-        <g id="node-hold" data-node-id="hold" data-node-label="Hold or reject" tabindex="0" role="button" aria-label="Focus Hold or reject, Unresolved" aria-pressed="false" data-node-kind="security" data-node-context="Unresolved">
-          <title>Hold or reject · Unresolved</title>
-          <rect x="884.4" y="341" width="142" height="52" rx="6" class="c-mask"/>
-          <rect x="884.4" y="341" width="142" height="52" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(890.4 347) scale(0.6875)">
+        <g id="node-approve" data-node-id="approve" data-node-label="Approve content hash" tabindex="0" role="button" aria-label="Focus Approve content hash, Current task / human review" aria-pressed="false" data-node-kind="security" data-node-context="Current task / human review">
+          <title>Approve content hash · Current task / human review</title>
+          <rect x="1005.5999999999999" y="196" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="1005.5999999999999" y="196" width="396" height="92" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1011.5999999999999 202) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" x="955.4" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Hold or reject</text>
+          <text data-node-label="" x="1203.6" y="250" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Approve content hash</text>
+        </g>
+
+        <g id="node-receipt" data-node-id="receipt" data-node-label="Audit receipt" tabindex="0" role="button" aria-label="Focus Audit receipt, Current task / human review" aria-pressed="false" data-node-kind="database" data-node-context="Current task / human review">
+          <title>Audit receipt · Current task / human review</title>
+          <rect x="1458" y="196" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="1458" y="196" width="396" height="92" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1464 202) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" x="1656" y="250" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Audit receipt</text>
+        </g>
+
+        <g id="node-base" data-node-id="base" data-node-label="Current base hash" tabindex="0" role="button" aria-label="Focus Current base hash, Unified write boundary" aria-pressed="false" data-node-kind="security" data-node-context="Unified write boundary">
+          <title>Current base hash · Unified write boundary</title>
+          <rect x="510" y="566" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="510" y="566" width="396" height="92" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(516 572) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" x="708" y="620" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Current base hash</text>
+        </g>
+
+        <g id="node-write" data-node-id="write" data-node-label="Atomic / paired write" tabindex="0" role="button" aria-label="Focus Atomic / paired write, Unified write boundary" aria-pressed="false" data-node-kind="backend" data-node-context="Unified write boundary">
+          <title>Atomic / paired write · Unified write boundary</title>
+          <rect x="1005.5999999999999" y="566" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="1005.5999999999999" y="566" width="396" height="92" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1011.5999999999999 572) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" x="1203.6" y="620" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Atomic / paired write</text>
+        </g>
+
+        <g id="node-index" data-node-id="index" data-node-label="Rebuild bounded index" tabindex="0" role="button" aria-label="Focus Rebuild bounded index, Unified write boundary" aria-pressed="false" data-node-kind="backend" data-node-context="Unified write boundary">
+          <title>Rebuild bounded index · Unified write boundary</title>
+          <rect x="1458" y="566" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="1458" y="566" width="396" height="92" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1464 572) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" x="1656" y="620" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Rebuild bounded index</text>
+        </g>
+
+        <g id="node-stale" data-node-id="stale" data-node-label="Stale · review again" tabindex="0" role="button" aria-label="Focus Stale · review again, Failure and recovery" aria-pressed="false" data-node-kind="security" data-node-context="Failure and recovery">
+          <title>Stale · review again · Failure and recovery</title>
+          <rect x="510" y="936" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="510" y="936" width="396" height="92" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(516 942) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" x="708" y="990" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Stale · review again</text>
+        </g>
+
+        <g id="node-recovery" data-node-id="recovery" data-node-label="Rollback / explicit recovery" tabindex="0" role="button" aria-label="Focus Rollback / explicit recovery, Failure and recovery" aria-pressed="false" data-node-kind="security" data-node-context="Failure and recovery">
+          <title>Rollback / explicit recovery · Failure and recovery</title>
+          <rect x="1005.5999999999999" y="1046" width="396" height="92" rx="6" class="c-mask"/>
+          <rect x="1005.5999999999999" y="1046" width="396" height="92" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1011.5999999999999 1052) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" x="1203.6" y="1100" class="t-primary" font-size="22" font-weight="600" text-anchor="middle">Rollback / explicit recovery</text>
         </g>
 
         <!-- Edge labels -->
-        <g data-detail="context" data-edge-from="review" data-edge-to="canonical" data-edge-label="approved" data-edge-key="0" data-edge-id="approve">
-          <rect x="832" y="223" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="856.2" y="233" class="t-backend" font-size="8" text-anchor="middle">approved</text>
+        <g data-detail="context" data-edge-from="approve" data-edge-to="write" data-edge-label="P3 + --confirm" data-edge-key="0" data-edge-id="approve-write">
+          <rect x="1233.4" y="385" width="154.4" height="28" rx="3" class="c-mask"/>
+          <text x="1310.6" y="402" class="t-muted" font-size="16" text-anchor="middle">P3 + --confirm</text>
         </g>
-
-
-        <g data-detail="context" data-edge-from="inbox" data-edge-to="normalize" data-edge-label="start Curator" data-edge-key="3" data-edge-id="curatorStart">
-          <rect x="312.8" y="146" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="349" y="156" class="t-muted" font-size="8" text-anchor="middle">start Curator</text>
+        <g data-detail="context" data-edge-from="base" data-edge-to="stale" data-edge-label="target changed" data-edge-key="1" data-edge-id="base-stale">
+          <rect x="187.8" y="585" width="154.4" height="28" rx="3" class="c-mask"/>
+          <text x="265" y="602" class="t-security" font-size="16" text-anchor="middle">target changed</text>
         </g>
-        <g data-detail="context" data-edge-from="review" data-edge-to="hold" data-edge-label="unresolved" data-edge-key="4" data-edge-id="defer">
-          <rect x="791.7" y="347" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="820.7" y="357" class="t-security" font-size="8" text-anchor="middle">unresolved</text>
+        <g data-detail="context" data-edge-from="base" data-edge-to="write" data-edge-label="both hashes match" data-edge-key="2" data-edge-id="base-write">
+          <rect x="864.2" y="585" width="183.2" height="28" rx="3" class="c-mask"/>
+          <text x="955.8" y="602" class="t-muted" font-size="16" text-anchor="middle">both hashes match</text>
         </g>
-
-        <g data-detail="context" data-edge-from="canonical" data-edge-to="index" data-edge-label="validate" data-edge-key="6" data-edge-id="finish">
-          <rect x="931.1999999999999" y="197" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="955.4" y="207" class="t-backend" font-size="8" text-anchor="middle">validate</text>
+        <g data-detail="context" data-edge-from="diff" data-edge-to="approve" data-edge-label="human review" data-edge-key="3" data-edge-id="diff-approve">
+          <rect x="888.2" y="277" width="135.2" height="28" rx="3" class="c-mask"/>
+          <text x="955.8" y="294" class="t-muted" font-size="16" text-anchor="middle">human review</text>
+        </g>
+        <g data-detail="context" data-edge-from="diff" data-edge-to="base" data-edge-label="reread targets" data-edge-key="4" data-edge-id="diff-base">
+          <rect x="523.8" y="385" width="154.4" height="28" rx="3" class="c-mask"/>
+          <text x="601" y="402" class="t-muted" font-size="16" text-anchor="middle">reread targets</text>
+        </g>
+        <g data-detail="context" data-edge-from="draft" data-edge-to="diff" data-edge-label="draft card" data-edge-key="5" data-edge-id="draft-diff">
+          <rect x="419" y="215" width="116" height="28" rx="3" class="c-mask"/>
+          <text x="477" y="232" class="t-muted" font-size="16" text-anchor="middle">draft card</text>
+        </g>
+        <g data-detail="context" data-edge-from="index" data-edge-to="receipt" data-edge-label="approval history" data-edge-key="6" data-edge-id="index-receipt">
+          <rect x="1569.1999999999998" y="539" width="173.6" height="28" rx="3" class="c-mask"/>
+          <text x="1656" y="556" class="t-muted" font-size="16" text-anchor="middle">approval history</text>
+        </g>
+        <g data-detail="context" data-edge-from="write" data-edge-to="index" data-edge-label="readback" data-edge-key="7" data-edge-id="write-index">
+          <rect x="1381.3999999999999" y="647" width="96.8" height="28" rx="3" class="c-mask"/>
+          <text x="1429.8" y="664" class="t-muted" font-size="16" text-anchor="middle">readback</text>
+        </g>
+        <g data-detail="context" data-edge-from="write" data-edge-to="recovery" data-edge-label="failure / interruption" data-edge-key="8" data-edge-id="write-recovery">
+          <rect x="1195" y="755" width="231.2" height="28" rx="3" class="c-mask"/>
+          <text x="1310.6" y="772" class="t-security" font-size="16" text-anchor="middle">failure / interruption</text>
         </g>
 
         <!-- Legend -->
-        <g data-legend="" data-legend-bridge="">
-          <text x="20" y="428" class="t-primary" font-size="12" font-weight="650">Legend</text>
-          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Agent logic" data-legend-x="20" data-legend-baseline="448" data-legend-width="91">
-            <rect x="20" y="440" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
-            <text x="42" y="448" class="t-muted" font-size="7.5" font-weight="500">Agent logic</text>
-          </g>
-          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Policy" data-legend-x="118" data-legend-baseline="448" data-legend-width="70">
-            <rect x="118" y="440" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
-            <text x="140" y="448" class="t-muted" font-size="7.5" font-weight="500">Policy</text>
-          </g>
-          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="Context / trace" data-legend-x="195" data-legend-baseline="448" data-legend-width="109">
-            <rect x="195" y="440" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
-            <text x="217" y="448" class="t-muted" font-size="7.5" font-weight="500">Context / trace</text>
-          </g>
-          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External system" data-legend-x="311" data-legend-baseline="448" data-legend-width="109">
-            <rect x="311" y="440" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
-            <text x="333" y="448" class="t-muted" font-size="7.5" font-weight="500">External system</text>
-          </g>
-        </g>
-      </svg>
+
+      <metadata id="mei-license-notices">MIT License
+
+Copyright (c) 2026 Mei contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+# Third-party notices
+
+Scope: the generated architecture HTML/SVG viewer and embedded font bytes.
+No visible UI attribution or Mei source-disclosure requirement is asserted.
+Do not generalize this approval to later versions or additional assets.
+
+The project-specific Light transform also reuses owner-provided FRAG-harness
+code with explicit permission to license that contribution under Mei's MIT
+license. This is not an assertion about the reference repository's license.
+
+## Archify 2.17.0-dev.1
+
+Source: https://github.com/tt-a1i/archify
+License: https://github.com/tt-a1i/archify/blob/main/LICENSE
+
+MIT License
+
+Copyright (c) 2026 tt-a1i (Archify)
+Copyright (c) 2025 Cocoon AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## JetBrains Mono — Google Fonts service revision v24
+
+Source: https://github.com/JetBrains/JetBrainsMono
+Official terms: https://openfontlicense.org/open-font-license-official-text/
+
+JetBrains Mono variable WOFF2 subsets from Google Fonts service revision v24.
+These fixed bytes are shared by the viewer and its SVG/raster exports.
+No local() source: an installed copy must not override the bundled font.
+Uncovered characters (including CJK) still use the system fallback stack.
+Upstream: https://github.com/JetBrains/JetBrainsMono
+
+cyrillic-ext    1664 bytes  sha256 9343de2ca5d9549f792e7962375af8efb0f320c7643bfd36c884b5a30e5c396f
+cyrillic        8892 bytes  sha256 4995a9a43ac659ec32fcd8b463755cd6a07b31a6e6b3894a6a153b661cf490e2
+greek           6800 bytes  sha256 49c3da6c9a2b279b0f1f860f5cfb1f5dc38d88a5c7be9c9b1837bbc4e3db6111
+vietnamese      5872 bytes  sha256 d44eb1936043a56038eb02dd70b243f379bef65783f94ec12f277550720411f1
+latin-ext      11596 bytes  sha256 9c38cb2d0d2d93c1ee6e21fa78db76f13ea7e15e15cc64214c7ca89b6aaa35c4
+latin          31340 bytes  sha256 2c32b9b3ee358c119e210f6f5195f9bd34894d78a785ff2e95d60e718e400af4
+
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+https://openfontlicense.org
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION &amp; CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+</metadata></svg>

@@ -1,6 +1,6 @@
 # Permissions policy
 
-The Codex `mei-project` profile is the ordinary project mode: the project workspace remains writable, Mei canonical memory and policies are read-only, and the only Mei write exception is creating one eligible redacted trajectory in `trajectories/inbox`. A separately selected `mei-personal-memory` profile may create a reviewed low-risk Markdown note and its bounded index under `memory_root`; existing-note changes require a proposal and explicit maintainer approval. It cannot write legacy JSON, registries, continuity, credentials, or host runtime state. The CLI requires `--reviewed-personal` for direct low-risk creation and a previous note hash for updates.
+The Codex `mei-project` profile is the ordinary project mode: the project workspace remains writable, Mei canonical memory and policies are read-only, and the only Mei write exception is creating one eligible redacted trajectory in `trajectories/inbox`. A separately selected `mei-personal-memory` profile may create a reviewed low-risk Markdown note and its bounded index under `memory_root`; existing-note changes require a proposal and explicit maintainer approval. It cannot write legacy JSON, registries, continuity, credentials, or host runtime state. The CLI requires `--reviewed-personal` for direct low-risk creation. An existing-note update requires both the current base hash and a content-bound, explicitly approved proposal; a previous hash alone never authorizes an update.
 
 A separately selected `mei-continuity-writer` profile grants only the explicitly
 configured context directory, not the whole continuity tree or registry. Changing
@@ -10,7 +10,10 @@ records. Hook event writes require a selected writer profile as well as native
 filesystem authorization. User-level hooks are discovered per host and trusted
 by the user; never synthesize a trust hash or use a trust-bypass flag as acceptance.
 
-The optional `mei-obsidian-projection` profile starts from `:read-only`, grants
+The default Obsidian vault is `memory/markdown` itself. Direct-root sync and
+drift checks are read-only: they never generate a second note projection or
+need a projection writer. The optional legacy `mei-obsidian-projection` profile
+starts from `:read-only`, grants
 only the configured generated namespace, and explicitly makes its human inbox
 read-only. Obsidian settings remain outside the grant. When the user selects
 automatic lifecycle/projection assistance, hooks invoke these named native

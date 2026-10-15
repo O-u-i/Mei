@@ -36,7 +36,7 @@ PROPOSAL_SCHEMA = "memory-proposal.schema.json"
 MAX_PROPOSAL_BYTES = 262_144
 MAX_CARD_BYTES = 131_072
 PROPOSAL_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
-TARGET_TYPES = frozenset(("personal_markdown", "governed_json"))
+TARGET_TYPES = frozenset(("personal_markdown", "governed_json", "relation_pair"))
 STATUSES = frozenset(("draft", "previewed", "stale", "approved", "applied", "rejected", "failed"))
 
 
@@ -88,7 +88,9 @@ def _atomic_write(path: Path, raw: bytes, *, expected_sha256: str | None = None)
 
 
 def _root(value: str | Path | None) -> Path:
-    root = Path(value or ROOT).expanduser().resolve()
+    root = Path(value or ROOT).expanduser()
+    _assert_no_reparse(root)
+    root = root.resolve()
     if not root.is_dir():
         raise ProposalError(f"Mei root is missing: {root}")
     _assert_no_reparse(root)
@@ -105,6 +107,12 @@ def _proposal_dir(root: Path, *, create: bool = False) -> Path:
     return path
 
 
+def _proposal_path(root: Path, proposal_id: str) -> Path:
+    if not isinstance(proposal_id, str) or not PROPOSAL_ID_PATTERN.fullmatch(proposal_id):
+        raise ProposalError("proposal_id is invalid")
+    return _safe_relative(_proposal_dir(root), proposal_id + ".md", "proposal")
+
+
 def _safe_relative(root: Path, locator: str, label: str) -> Path:
     if not isinstance(locator, str) or not locator:
         raise ProposalError(f"{label} must be a non-empty relative path")
@@ -115,7 +123,7 @@ def _safe_relative(root: Path, locator: str, label: str) -> Path:
     if any(part in ("", ".", "..") for part in parts):
         raise ProposalError(f"{label} contains an unsafe path")
     candidate = root.joinpath(*parts)
-    _assert_no_reparse(candidate.parent)
+    _assert_no_reparse(candidate)
     try:
         if not candidate.resolve(strict=False).is_relative_to(root.resolve()):
             raise ProposalError(f"{label} escapes its root")
@@ -126,7 +134,11 @@ def _safe_relative(root: Path, locator: str, label: str) -> Path:
 
 def _normalize_target(target_type: str, target_locator: str) -> str:
     if target_type not in TARGET_TYPES:
-        raise ProposalError("target_type must be personal_markdown or governed_json")
+        raise ProposalError("unsupported proposal target_type")
+    if target_type == "relation_pair":
+        if target_locator != "memory/markdown":
+            raise ProposalError("relation transactions must target memory/markdown")
+        return target_locator
     locator = target_locator.replace("\\", "/")
     prefix = "memory/markdown/" if target_type == "personal_markdown" else "memory/candidates/"
     if not locator.startswith(prefix) or locator.endswith("/"):
@@ -145,6 +157,8 @@ def _normalize_target(target_type: str, target_locator: str) -> str:
 
 def _target_path(root: Path, target_type: str, locator: str) -> tuple[Path, str]:
     locator = _normalize_target(target_type, locator)
+    if target_type == "relation_pair":
+        return resolve_memory_root(root), ""
     prefix = "memory/markdown/" if target_type == "personal_markdown" else "memory/candidates/"
     relative = locator[len(prefix) :]
     if target_type == "personal_markdown":
@@ -172,17 +186,27 @@ def _source_value(source: dict[str, Any] | str | None) -> dict[str, Any]:
 
 
 def _source_status(root: Path, source: dict[str, Any]) -> str:
+    if source["kind"] in {"user_decision", "human_review"}:
+        return "declared"
     locator = source["locator"]
     path = Path(locator)
     if not path.is_absolute():
-        path = root / locator
+        try:
+            path = _safe_relative(root, locator, "proposal evidence")
+        except (ProposalError, MarkdownMemoryError):
+            return "unreadable"
     try:
+        _assert_no_reparse(path)
+        if not path.resolve().is_relative_to(root.resolve()):
+            return "external_review_required"
         if not path.is_file():
             return "missing"
+        if path.stat().st_size > 1048576:
+            return "over_cap"
         observed = _sha(path.read_bytes())
         expected = source.get("sha256")
-        return "verified" if expected and expected == observed else "available_unhashed"
-    except OSError:
+        return ("verified" if expected == observed else "changed") if expected else "available_unhashed"
+    except (OSError, MarkdownMemoryError):
         return "unreadable"
 
 
@@ -190,7 +214,8 @@ def _card_path(vault: Path, namespace_path: Path, proposal_id: str, *, create: b
     review = namespace_path / "review"
     if create:
         review.mkdir(parents=True, exist_ok=True)
-    return _safe_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/review/{proposal_id}.md", "review card")
+    prefix = namespace_path.relative_to(vault).as_posix()
+    return _safe_relative(vault, f"{prefix + '/' if prefix != '.' else ''}review/{proposal_id}.md", "review card")
 
 
 def _fence(content: str) -> str:
@@ -254,8 +279,8 @@ def _split_card(raw: str, source: Path) -> tuple[dict[str, Any], str]:
     if marker < 0:
         raise ProposalError(f"{source}: review card frontmatter is malformed")
     try:
-        frontmatter = yaml.safe_load(raw[4:marker])
-    except yaml.YAMLError as exc:
+        frontmatter = yaml.load(raw[4:marker], Loader=_UniqueLoader)
+    except (yaml.YAMLError, MarkdownMemoryError) as exc:
         raise ProposalError(f"{source}: invalid review card frontmatter") from exc
     if not isinstance(frontmatter, dict) or frontmatter.get("review_card") is not True:
         raise ProposalError(f"{source}: review card marker is invalid")
@@ -303,6 +328,8 @@ def _read_proposal(path: Path, root: Path) -> dict[str, Any]:
         raise ProposalError(f"{path}: proposal must be an object")
     validate_schema(value, PROPOSAL_SCHEMA, ROOT)
     check_private_content(value)
+    if _content_sha(value["suggested_content"]) != value["suggested_content_sha256"]:
+        raise ProposalError("proposal suggested content hash mismatch")
     return value
 
 
@@ -318,6 +345,8 @@ def _write_proposal(path: Path, value: dict[str, Any], root: Path, *, expected_s
         validate_schema(value, PROPOSAL_SCHEMA, ROOT)
     else:
         raw = _json_bytes(value)
+    if len(raw) > MAX_PROPOSAL_BYTES:
+        raise ProposalError("proposal exceeds the byte cap")
     return _atomic_write(path, raw, expected_sha256=expected_sha256)
 
 
@@ -386,6 +415,10 @@ def _update_card_metadata(card_path: Path, proposal: dict[str, Any], *, expected
 
 def _target_snapshot(root: Path, proposal: dict[str, Any]) -> tuple[Path, bytes | None, str | None]:
     path, _ = _target_path(root, proposal["target_type"], proposal["target_locator"])
+    if proposal["target_type"] == "relation_pair":
+        from relations import snapshot
+        raw = snapshot(path, proposal["suggested_content"])
+        return path, raw, _sha(raw)
     raw = path.read_bytes() if path.is_file() else None
     return path, raw, _sha(raw) if raw is not None else None
 
@@ -408,7 +441,7 @@ def _preview_payload(root: Path, proposal: dict[str, Any], current_raw: bytes | 
         diff = diff[:32_000] + "\n[diff truncated]\n"
     source_status = _source_status(root, proposal["source"])
     unresolved = []
-    if source_status not in {"verified", "available_unhashed"}:
+    if source_status not in {"verified", "available_unhashed", "declared"}:
         unresolved.append("source_unavailable")
     if current_sha != proposal["target_base_sha256"]:
         unresolved.append("target_changed")
@@ -467,6 +500,10 @@ def _render_review_index(root: Path, vault: Path, namespace_path: Path) -> str:
 
 
 def _open_vault(root: Path, vault_root: str | Path | None, namespace: str | None) -> tuple[Path, Path, str]:
+    if vault_root is None:
+        # Review cards are ordinary Markdown; no Obsidian app/settings are needed.
+        vault_root = resolve_memory_root(root)
+        namespace = "."
     return resolve_vault(vault_root, namespace, config_path=root / "local" / "paths.toml")
 
 
@@ -506,6 +543,9 @@ def draft_proposal(
         except (TypeError, ValueError) as exc:
             raise ProposalError("governed JSON content is not serializable") from exc
     current_raw = target_path.read_bytes() if target_path.is_file() else None
+    if target_type == "relation_pair":
+        from relations import snapshot
+        current_raw = snapshot(resolve_memory_root(root), suggested_content)
     current_sha = _sha(current_raw) if current_raw is not None else None
     pid = proposal_id or _proposal_id(locator, source_value, scope)
     if not PROPOSAL_ID_PATTERN.fullmatch(pid):
@@ -539,7 +579,7 @@ def draft_proposal(
             "suggested_content_sha256": _content_sha(suggested_content),
             "target_base_sha256": current_sha,
             "target_exists": current_raw is not None,
-            "card_locator": f"{namespace_name}/review/{pid}.md",
+            "card_locator": f"{namespace_name + '/' if namespace_name not in {'', '.'} else ''}review/{pid}.md",
             "card_sha256": None,
             "preview": None,
             "approval": None,
@@ -572,7 +612,7 @@ def draft_proposal(
 
 def preview_proposal(proposal_id: str, *, mei_root: str | Path | None = None, vault_root: str | Path | None = None, namespace: str | None = None) -> dict[str, Any]:
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.md"
+    path = _proposal_path(root, proposal_id)
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         vault, namespace_path, _ = _open_vault(root, vault_root, namespace)
@@ -598,7 +638,7 @@ def preview_proposal(proposal_id: str, *, mei_root: str | Path | None = None, va
 def status_proposals(proposal_id: str | None = None, *, mei_root: str | Path | None = None) -> dict[str, Any]:
     root = _root(mei_root)
     directory = _proposal_dir(root, create=proposal_id is None)
-    paths = [directory / f"{proposal_id}.md"] if proposal_id else sorted(directory.glob("*.md"))
+    paths = [_proposal_path(root, proposal_id)] if proposal_id else sorted(directory.glob("*.md"))
     entries = []
     for path in paths:
         proposal = _read_proposal(path, root)
@@ -666,7 +706,7 @@ def check_review_workbench(
 
 def apply_proposal(proposal_id: str, *, confirm: bool = False, mei_root: str | Path | None = None, vault_root: str | Path | None = None, namespace: str | None = None) -> dict[str, Any]:
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.md"
+    path = _proposal_path(root, proposal_id)
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         if proposal["status"] == "applied":
@@ -685,11 +725,18 @@ def apply_proposal(proposal_id: str, *, confirm: bool = False, mei_root: str | P
         if proposal["status"] not in {"previewed", "approved", "failed"} or not proposal.get("preview") or proposal["preview"].get("reviewed_content_sha256") != proposal["suggested_content_sha256"]:
             return {**_proposal_result(proposal, status="preview_required"), "required_action": "preview"}
         target_path, current_raw, current_sha = _target_snapshot(root, proposal)
-        if proposal["status"] in {"approved", "failed"} and current_sha == proposal["suggested_content_sha256"] and current_sha != proposal["target_base_sha256"]:
+        desired_sha = proposal["suggested_content_sha256"]
+        if proposal["target_type"] == "relation_pair":
+            from relations import snapshot
+            desired_sha = _sha(snapshot(resolve_memory_root(root), proposal["suggested_content"], desired=True))
+        if proposal["status"] in {"approved", "failed"} and current_sha == desired_sha and current_sha != proposal["target_base_sha256"]:
+            approval = proposal.get("approval") or {}
+            if not approval.get("explicit") or approval.get("approved_content_sha256") != proposal["suggested_content_sha256"]:
+                raise ProposalError("recovery requires the exact previously approved content hash")
             proposal["status"] = "applied"
             proposal["receipt"] = {
                 "applied_at": _now(), "target_sha256": current_sha,
-                "writer": "memory_markdown.write_note", "write_status": "recovered",
+                "writer": "relations.apply_bundle" if proposal["target_type"] == "relation_pair" else "memory_markdown.write_note", "write_status": "recovered",
             }
             proposal["updated_at"] = _now()
             _event(proposal, "applied_recovered", target_sha256=current_sha)
@@ -710,19 +757,32 @@ def apply_proposal(proposal_id: str, *, confirm: bool = False, mei_root: str | P
         _event(proposal, "explicit_apply_requested", approved_content_sha256=proposal["suggested_content_sha256"])
         _write_proposal(path, proposal, root)
         try:
+            if not proposal["approval"].get("explicit") or proposal["approval"].get("approved_content_sha256") != _content_sha(proposal["suggested_content"]):
+                raise ProposalError("approved content hash mismatch")
+            if proposal["preview"].get("unresolved"):
+                raise ProposalError("resolve preview diagnostics before applying")
+            if _source_status(root, proposal["source"]) not in {"verified", "available_unhashed", "declared"}:
+                raise ProposalError("proposal evidence changed or is unavailable; reread and preview again")
             _, memory_locator = _target_path(root, proposal["target_type"], proposal["target_locator"])
-            write_result = write_note(
-                resolve_memory_root(root), memory_locator, proposal["suggested_content"],
-                expected_sha256=proposal["target_base_sha256"],
-            )
+            if proposal["target_type"] == "relation_pair":
+                from relations import apply_bundle
+                write_result = apply_bundle(resolve_memory_root(root), proposal["suggested_content"],
+                                            expected_sha256=proposal["target_base_sha256"],
+                                            approved_content_sha256=proposal["approval"]["approved_content_sha256"])
+            else:
+                write_result = write_note(
+                    resolve_memory_root(root), memory_locator, proposal["suggested_content"],
+                    expected_sha256=proposal["target_base_sha256"],
+                    approved_content_sha256=proposal["approval"]["approved_content_sha256"],
+                )
         except (MarkdownMemoryError, OSError, ProposalError) as exc:
             proposal["status"] = "failed"
             proposal["updated_at"] = _now()
             _event(proposal, "apply_failed", reason=type(exc).__name__)
             _write_proposal(path, proposal, root)
             return {**_proposal_result(proposal, status="failed"), "required_action": "inspect_failure_and_retry", "error": str(exc)}
-        observed = _sha(target_path.read_bytes()) if target_path.is_file() else None
-        if observed != proposal["suggested_content_sha256"]:
+        observed = _target_snapshot(root, proposal)[2]
+        if observed != desired_sha:
             proposal["status"] = "failed"
             _event(proposal, "apply_readback_failed")
             _write_proposal(path, proposal, root)
@@ -730,7 +790,7 @@ def apply_proposal(proposal_id: str, *, confirm: bool = False, mei_root: str | P
         proposal["status"] = "applied"
         proposal["receipt"] = {
             "applied_at": _now(), "target_sha256": observed,
-            "writer": "memory_markdown.write_note", "write_status": write_result.get("status"),
+            "writer": "relations.apply_bundle" if proposal["target_type"] == "relation_pair" else "memory_markdown.write_note", "write_status": write_result.get("status"),
         }
         proposal["updated_at"] = _now()
         _event(proposal, "applied", target_sha256=observed)
@@ -749,7 +809,7 @@ def reject_proposal(proposal_id: str, reason: str, *, mei_root: str | Path | Non
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
         raise ProposalError("a bounded rejection reason is required")
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.md"
+    path = _proposal_path(root, proposal_id)
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         if proposal["status"] == "applied":
@@ -772,7 +832,7 @@ def reject_proposal(proposal_id: str, reason: str, *, mei_root: str | Path | Non
 
 def _read_content(path: Path, target_type: str) -> str | dict[str, Any]:
     raw = path.read_text(encoding="utf-8")
-    if target_type == "governed_json":
+    if target_type in {"governed_json", "relation_pair"}:
         value = json.loads(raw)
         if not isinstance(value, dict):
             raise ProposalError("governed content file must contain a JSON object")
@@ -819,7 +879,7 @@ def _cli() -> int:
     except (ProposalError, MarkdownMemoryError, OSError, UnicodeError, ValueError, KeyError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if result.get("status") in {"drafted", "previewed", "ok", "applied", "already_applied", "rejected", "requires_curator", "authorization_required", "preview_required", "repreview_required", "protected", "card_drifted", "stale", "failed"} else 1
+    return 0 if result.get("status") in {"drafted", "previewed", "ok", "applied", "already_applied", "rejected"} else 1
 
 
 if __name__ == "__main__":

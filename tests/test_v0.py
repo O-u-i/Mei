@@ -25,10 +25,8 @@ def fixture_root():
     base.mkdir(parents=True, exist_ok=True)
     root = base / f"v0-{uuid.uuid4().hex}"
     root.mkdir()
-    try:
-        yield root
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+    # Retain synthetic evidence; this workspace forbids batch deletion.
+    yield root
 
 
 class V0ContractTests(unittest.TestCase):

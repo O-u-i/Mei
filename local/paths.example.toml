@@ -11,8 +11,8 @@ codex_memory_source_gui = "<absolute-path-to-GUI-Codex-directory>/memories"
 codex_memory_source_tui = "<absolute-path-to-TUI-Codex-directory>/memories"
 skills_root = "<absolute-path-to-personal-Codex-skills>"
 inbox = "<absolute-path-to-Mei-inbox>"
-obsidian_vault = "<absolute-path-to-Mei-checkout>/obsidian-vault"
-obsidian_memory_dir = "Mei Memory"
+obsidian_vault = "<absolute-path-to-Mei-checkout>/memory/markdown"
+obsidian_memory_dir = ""
 
 [profiles]
 project = "mei-project"
@@ -27,3 +27,7 @@ continuity_lifecycle_profile = false
 continuity_draft_profile = false
 obsidian_projection_profile = false
 # If required by this host, e.g. codex_config_profile_tui = "relay"
+
+[continuity.selected_contexts]
+# Explicitly bind a verified repository ID when several active contexts exist.
+# repo-<32-hex-digits> = "<selected-context-id>"

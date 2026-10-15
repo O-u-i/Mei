@@ -21,6 +21,8 @@ from typing import Any
 import yaml
 
 from _common import ROOT, SECRET_PATTERNS
+from memory_markdown import (_assert_no_reparse, _relative, _split_note, CATEGORIES as NOTE_CATEGORIES,
+                             parse_note, render_note, initialize_memory, rebuild_index, list_notes)
 
 SCHEMA_VERSION = "v0.2.0"
 MANIFEST_VERSION = "v0.2.0"
@@ -49,18 +51,16 @@ def _now() -> str:
 
 
 def _assert_safe(root: Path, path: Path) -> None:
-    root = root.resolve()
-    path = path.resolve(strict=False)
-    if not path.is_relative_to(root):
+    _assert_no_reparse(root)
+    _assert_no_reparse(path)
+    if not path.resolve(strict=False).is_relative_to(root.resolve()):
         raise MigrationError(f"path escapes migration root: {path}")
-    for part in [root, *path.parents]:
-        if part == root.parent:
-            break
-        if part.exists() and part.is_symlink():
-            raise MigrationError(f"reparse or symlink path is not allowed: {part}")
 
 
-def _atomic(path: Path, raw: bytes) -> None:
+_UNSET = object()
+
+
+def _atomic(path: Path, raw: bytes, *, expected_sha256: Any = _UNSET) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -68,7 +68,14 @@ def _atomic(path: Path, raw: bytes) -> None:
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(tmp, path)
+        if expected_sha256 is not _UNSET:
+            observed = _sha(path.read_bytes()) if path.exists() else None
+            if observed != expected_sha256:
+                raise MigrationError("migration target changed before atomic write")
+        if expected_sha256 is None:
+            os.link(tmp, path)  # Atomic create-if-absent: never replace a concurrent file.
+        else:
+            os.replace(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink()
@@ -154,7 +161,7 @@ def _provenance(data: dict[str, Any], source: Path) -> list[dict[str, str]]:
     if value is None:
         # Missing provenance is explicitly review-required; do not invent an
         # evidence source merely because a legacy record exists.
-        return [{"source": str(source), "locator": str(source), "evidence_type": "prior_memory", "verified_at": None}]
+        return []
     if not isinstance(value, list):
         raise MigrationError(f"{source}: provenance must be a list")
     result = []
@@ -173,7 +180,7 @@ def _note(root: Path, source: Path, data: dict[str, Any], group: str, target: Pa
     if group == "canonical" and data.get("category") not in CATEGORIES:
         raise MigrationError(f"{source}: canonical record category is required")
     related, typed = _relations(data)
-    missing_provenance = not data.get("provenance")
+    missing_provenance = not data.get("provenance") or not data.get("scope")
     frontmatter: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "memory_id": memory_id,
@@ -201,7 +208,7 @@ def _note(root: Path, source: Path, data: dict[str, Any], group: str, target: Pa
     body = "## For future agent\n\n"
     body += f"This migrated {status} memory applies to {frontmatter['scope']}.\n\n"
     body += "## Claim\n\n" + str(claim).strip() + "\n\n"
-    body += "## Evidence\n\n" + ("\n".join(provenance_lines) or "Migration source unavailable; review required.") + "\n"
+    body += "## Evidence\n\n" + ("\n".join(provenance_lines) or "Original provenance unavailable; migration source is recorded in metadata. Review required.") + "\n"
     if notes:
         body += "\n## History\n\n" + str(notes).strip() + "\n"
     if frontmatter["conflicts"]:
@@ -209,150 +216,356 @@ def _note(root: Path, source: Path, data: dict[str, Any], group: str, target: Pa
     return ("---\n" + yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip() + "\n---\n" + body).encode("utf-8")
 
 
-def _proposal(root: Path, source: Path, data: dict[str, Any]) -> bytes:
-    """Render an unapproved candidate as the Markdown proposal contract."""
-    proposal_id = str(data.get("id", source.stem))
-    body = "## Reason\n\nMigrated from an unapproved legacy candidate; review before applying.\n\n"
-    body += "## Proposed Change\n\n" + str(data.get("claim", "")).strip() + "\n\n"
-    body += "## Diff\n\nLegacy candidate content is preserved in `memory/legacy-json`.\n\n"
-    body += "## Unresolved\n\nProvenance and conflicts require curator review.\n\n## Approval History\n"
-    frontmatter = {
-        "proposal_id": proposal_id,
-        "status": "draft",
-        "target_locator": f"memory/markdown/{data.get('category', 'procedural')}/{proposal_id}.md",
-        "target_base_sha256": None,
-        "suggested_content_sha256": _sha(body.encode("utf-8")),
-        "scope": str(data.get("scope") or "legacy candidate"),
-        "source": {"kind": "legacy_json", "locator": source.relative_to(root).as_posix()},
-        "approval": {"explicit": False, "approved_content_sha256": None, "approved_at": None},
-    }
-    return ("---\n" + yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip() + "\n---\n" + body).encode("utf-8")
+def _proposal(root: Path, source: Path, data: dict, *, migration_at: str) -> dict:
+    from review_proposals import _content_sha, _render_card
+    memory_id = data.get("id", source.stem)
+    category = data.get("category", "procedural")
+    if category not in CATEGORIES:
+        raise MigrationError("candidate category is invalid")
+    content = _note(root, source, data, "canonical", root / "memory/markdown" / category / f"{memory_id}.md",
+                    "canonical", migration_at=migration_at).decode("utf-8")
+    proposal = {"schema_version": "v0.2.0", "proposal_id": memory_id, "status": "draft",
+                "target_type": "personal_markdown", "target_locator": f"memory/markdown/{category}/{memory_id}.md",
+                "scope": data.get("scope") or "legacy candidate; review required",
+                "source": {"kind": "legacy_json", "locator": source.relative_to(root).as_posix(), "sha256": _sha(source.read_bytes())},
+                "reason": "Migrated unapproved candidate; provenance and conflicts require human review.",
+                "suggested_content": content, "suggested_content_sha256": _content_sha(content),
+                "target_base_sha256": None, "target_exists": False, "card_locator": f"review/{memory_id}.md",
+                "card_sha256": None, "preview": None, "approval": None, "receipt": None,
+                "history": [{"event": "migrated_candidate", "at": migration_at}],
+                "created_at": migration_at, "updated_at": migration_at}
+    proposal["card_sha256"] = _sha(_render_card(proposal).encode("utf-8"))
+    return proposal
 
 
-def plan(root: Path = ROOT, *, manifest_path: Path | None = None, migration_at: str | None = None) -> dict[str, Any]:
-    root = Path(root).resolve()
-    manifest_path = Path(manifest_path or root / "memory/migration/manifest.yaml")
-    entries: list[dict[str, Any]] = []
-    ids: dict[str, Path] = {}
-    errors: list[str] = []
-    for source, group in _source_records(root):
+def _proposal_bytes(value: dict) -> bytes:
+    from review_proposals import _frontmatter
+    from _common import validate_schema, check_private_content
+    validate_schema(value, "memory-proposal.schema.json")
+    check_private_content(value)
+    return ("---\n" + _frontmatter(value) + "\n---\n## Reason\n\nMigrated unapproved candidate.\n\n"
+            "## Proposed Change\n\nSee suggested_content in metadata.\n\n## Diff\n\nPending preview.\n\n"
+            "## Unresolved\n\nHuman review required.\n\n## Approval History\n\nMigrated, not approved.\n").encode("utf-8")
+
+
+def _load_json(raw: bytes) -> dict:
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise MigrationError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    if not isinstance(value, dict):
+        raise MigrationError("record must be a JSON object")
+    return value
+
+
+def _root(root: Path) -> Path:
+    root = Path(root).absolute()
+    _assert_safe(root, root)
+    if root.name == "markdown" and root.parent.name == "memory":
+        raise MigrationError("--root expects the Mei checkout, not memory/markdown")
+    if not root.is_dir():
+        raise MigrationError("Mei migration root is missing")
+    return root
+
+
+def _manifest_path(root: Path, path: Path | None) -> Path:
+    path = Path(path or root / "memory/migration/manifest.yaml").absolute()
+    _assert_safe(root / "memory/migration", path)
+    return path
+
+
+def _entry_paths(root: Path, entry: dict) -> tuple[Path, Path, Path]:
+    group = entry.get("group")
+    locator = entry.get("source", "")
+    prefix = "memory/markdown/" if group == "markdown_upgrade" else f"memory/{group}/"
+    if group not in {"canonical", "candidates", "archive", "markdown_upgrade"} or not locator.startswith(prefix):
+        raise MigrationError("manifest source is outside the migration allowlist")
+    source = _relative(root, locator, "migration source")
+    target = _relative(root, entry["target"], "migration target")
+    expected_target, _ = _target_for(root, source, group, {"id": entry["id"], "category": target.parent.name}) if group != "markdown_upgrade" else (source, "upgrade")
+    if target != expected_target:
+        raise MigrationError("manifest target is not deterministic for its source/id")
+    if group == "markdown_upgrade":
+        if target.parent.name not in CATEGORIES or target.name != entry["id"] + ".md":
+            raise MigrationError("invalid Markdown upgrade target")
+        evidence = root / "memory/migration/backups" / (entry["source_sha256"] + ".md")
+    else:
+        evidence = root / "memory/legacy-json" / locator.removeprefix("memory/")
+    _assert_safe(root, evidence)
+    return source, target, evidence
+
+
+def _read_manifest(root: Path, path: Path) -> dict:
+    _assert_safe(root / "memory/migration", path)
+    value = _yaml_load(path.read_bytes(), path)
+    if not isinstance(value, dict) or value.get("schema_version") != MANIFEST_VERSION or not isinstance(value.get("entries"), list):
+        raise MigrationError("invalid migration manifest")
+    if value.get("root") != str(root):
+        raise MigrationError("manifest is bound to a different Mei checkout")
+    for entry in value["entries"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("source_sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", entry["source_sha256"]):
+            raise MigrationError("invalid manifest entry/hash")
+        if entry.get("target"):
+            _entry_paths(root, entry)
+    return value
+
+
+def _render_entry(root: Path, entry: dict, migration_at: str) -> tuple[bytes, dict | None]:
+    source = _relative(root, entry["source"], "migration source")
+    raw = source.read_bytes()
+    if entry["group"] == "markdown_upgrade":
+        return render_note(parse_note(raw.decode("utf-8"), source)).encode("utf-8"), None
+    data = _load_json(raw)
+    if entry["kind"] == "proposal":
+        proposal = _proposal(root, source, data, migration_at=migration_at)
+        return _proposal_bytes(proposal), proposal
+    target = root / entry["target"]
+    result = _note(root, source, data, entry["group"], target,
+                   "canonical" if entry["kind"] == "canonical" else "archived", migration_at=migration_at)
+    parse_note(result.decode("utf-8"), target)
+    return result, None
+
+
+def plan(root: Path = ROOT, *, manifest_path: Path | None = None, migration_at: str | None = None) -> dict:
+    root = _root(root)
+    manifest_path = _manifest_path(root, manifest_path)
+    prior = _read_manifest(root, manifest_path) if manifest_path.exists() else None
+    stamp = migration_at or (prior["generated_at"] if prior else _now())
+    entries, errors, ids = [], [], {}
+    sources = _source_records(root)
+    for category in sorted(CATEGORIES):
+        for path in sorted((root / "memory/markdown" / category).glob("*.md")):
+            _assert_safe(root, path)
+            raw = path.read_text(encoding="utf-8")
+            metadata, _ = _split_note(raw, path)
+            if metadata.get("schema_version") != SCHEMA_VERSION:
+                sources.append((path, "markdown_upgrade"))
+            else:
+                parsed = parse_note(raw, path)
+                ids[parsed["memory_id"]] = path
+    for source, group in sources:
         raw = source.read_bytes()
-        entry: dict[str, Any] = {"source": source.relative_to(root).as_posix(), "source_sha256": _sha(raw), "source_bytes": len(raw), "group": group}
+        entry = {"source": source.relative_to(root).as_posix(), "source_sha256": _sha(raw),
+                 "source_bytes": len(raw), "group": group}
         try:
-            data = json.loads(raw.decode("utf-8"))
-            if not isinstance(data, dict):
-                raise MigrationError("record must be a JSON object")
-            target, kind = _target_for(root, source, group, data)
-            memory_id = data.get("id", source.stem)
-            if memory_id in ids:
-                raise MigrationError(f"duplicate memory id also found at {ids[memory_id].relative_to(root).as_posix()}")
-            ids[memory_id] = source
-            rendered = _note(root, source, data, group, target, "canonical" if kind == "canonical" else "archived", migration_at=migration_at) if kind != "proposal" else _proposal(root, source, data)
-            entry.update(id=memory_id, target=target.relative_to(root).as_posix(), kind=kind, markdown_sha256=_sha(rendered), action="create")
-        except (json.JSONDecodeError, UnicodeDecodeError, MigrationError, KeyError) as exc:
+            if len(raw) > 131072:
+                raise MigrationError("legacy record exceeds the byte cap")
+            if any(pattern.search(raw.decode("utf-8")) for pattern in SECRET_PATTERNS):
+                raise MigrationError("possible secret in migration source")
+            if group == "markdown_upgrade":
+                data = parse_note(raw.decode("utf-8"), source)
+                memory_id, target, kind = data["memory_id"], source, "upgrade"
+            else:
+                data = _load_json(raw)
+                memory_id = data.get("id", source.stem)
+                target, kind = _target_for(root, source, group, data)
+            # An unchanged manifest-owned target is the same migrated record, not a new duplicate.
+            prior_entry = next((item for item in (prior or {}).get("entries", []) if item["source"] == entry["source"]), None)
+            if memory_id in ids and not (prior_entry and ids[memory_id] == target):
+                raise MigrationError(f"duplicate memory id: {memory_id}")
+            ids[memory_id] = target
+            entry.update(id=memory_id, target=target.relative_to(root).as_posix(), kind=kind, action="upgrade" if kind == "upgrade" else "create")
+            rendered, proposal = _render_entry(root, entry, stamp)
+            entry["markdown_sha256"] = _sha(rendered)
+            if target.exists() and group != "markdown_upgrade":
+                if not prior_entry or _sha(target.read_bytes()) != prior_entry.get("markdown_sha256") or _sha(raw) != prior_entry["source_sha256"]:
+                    raise MigrationError("target/source changed or pre-exists without this manifest; refusing overwrite")
+                entry.update(action="unchanged", markdown_sha256=prior_entry["markdown_sha256"],
+                             created_by_manifest=prior_entry.get("created_by_manifest", prior_entry.get("action") == "created"))
+            if proposal is not None:
+                from review_proposals import _render_card
+                card = _relative(root / "memory/markdown", proposal["card_locator"], "candidate review card")
+                if card.exists() and _sha(card.read_bytes()) != proposal["card_sha256"]:
+                    raise MigrationError("candidate review card was edited; refusing overwrite")
+                entry["card_missing"] = not card.exists()
+        except (ValueError, OSError, KeyError) as exc:
             entry.update(action="blocked", error=str(exc))
-            errors.append(f"{source.relative_to(root)}: {exc}")
+            errors.append(f"{entry['source']}: {exc}")
         entries.append(entry)
-    return {"schema_version": MANIFEST_VERSION, "generated_at": _now(), "root": str(root), "manifest": str(manifest_path), "entries": entries, "errors": errors, "status": "invalid" if errors else "ok"}
+    # Retain ownership and upgrade receipts across repeated runs and after rollback.
+    present = {entry["source"] for entry in entries}
+    for item in (prior or {}).get("entries", []):
+        if item["source"] not in present and item["group"] == "markdown_upgrade":
+            target = _relative(root, item["target"], "upgrade target")
+            if not target.is_file() or _sha(target.read_bytes()) != item["markdown_sha256"]:
+                error = f"{item['target']}: upgraded note changed; refusing automatic adoption"
+                errors.append(error)
+                entries.append(dict(item, action="blocked", error=error))
+            else:
+                entries.append(dict(item, action="unchanged"))
+    # Validate the resulting canonical graph before writing any file.
+    if not errors:
+        from relations import _check_notes
+        combined = {note["memory_id"]: note for note in list_notes(root / "memory/markdown")} if (root / "memory/markdown").is_dir() else {}
+        for entry in entries:
+            if entry["kind"] in {"canonical", "archived"} and entry["action"] != "unchanged":
+                content, _ = _render_entry(root, entry, stamp)
+                combined[entry["id"]] = parse_note(content.decode("utf-8"), root / entry["target"])
+        graph = _check_notes(list(combined.values()))
+        errors.extend(str(item) for item in graph["errors"])
+    return {"schema_version": MANIFEST_VERSION, "generated_at": stamp, "root": str(root), "manifest": str(manifest_path),
+            "entries": entries, "errors": errors, "status": "invalid" if errors else "ok"}
 
 
-def migrate(root: Path = ROOT, *, manifest_path: Path | None = None) -> dict[str, Any]:
-    root = Path(root).resolve()
-    manifest_path = Path(manifest_path or root / "memory/migration/manifest.yaml")
-    previous: dict[str, Any] = {}
-    if manifest_path.is_file():
-        try:
-            loaded = _yaml_load(manifest_path.read_bytes(), manifest_path)
-            previous = {item.get("source"): item for item in loaded.get("entries", []) if isinstance(item, dict)}
-        except (OSError, MigrationError):
-            previous = {}
-    generated_at = _now()
-    result = plan(root, manifest_path=manifest_path, migration_at=generated_at)
-    result["generated_at"] = generated_at
-    legacy_root = root / "memory/legacy-json"
-    created: list[str] = []
-    for entry in result["entries"]:
-        source = root / entry["source"]
-        legacy = legacy_root / entry["source"].removeprefix("memory/")
-        _assert_safe(root, legacy)
-        raw = source.read_bytes()
-        if not legacy.exists():
-            _atomic(legacy, raw)
-        elif legacy.read_bytes() != raw:
-            entry["action"] = "blocked"
-            entry["error"] = "legacy evidence copy differs; refusing overwrite"
-            continue
-        if entry.get("action") != "create":
-            continue
-        target = root / entry["target"]
-        prior = previous.get(entry["source"])
-        if target.is_file() and prior and prior.get("source_sha256") == entry.get("source_sha256") and prior.get("markdown_sha256") == _sha(target.read_bytes()):
-            entry["markdown_sha256"] = prior["markdown_sha256"]
-            entry["action"] = "unchanged"
-            entry["legacy"] = legacy.relative_to(root).as_posix()
-            continue
-        target_bytes = _proposal(root, source, json.loads(raw.decode("utf-8"))) if entry["kind"] == "proposal" else _note(root, source, json.loads(raw.decode("utf-8")), entry["group"], target, "canonical" if entry["kind"] == "canonical" else "archived", migration_at=result["generated_at"])
-        if target.exists():
-            if _sha(target.read_bytes()) != _sha(target_bytes):
-                entry["action"] = "blocked"
-                entry["error"] = "target exists and differs; refusing overwrite"
+def migrate(root: Path = ROOT, *, manifest_path: Path | None = None) -> dict:
+    from checkpoint_continuity import _context_lock
+    root = _root(root)
+    manifest_path = _manifest_path(root, manifest_path)
+    with _context_lock(root, 5.0):
+        manifest_hash = _sha(manifest_path.read_bytes()) if manifest_path.exists() else None
+        def persist() -> None:
+            nonlocal manifest_hash
+            raw = yaml.safe_dump(result, allow_unicode=True, sort_keys=False).encode("utf-8")
+            _atomic(manifest_path, raw, expected_sha256=manifest_hash)
+            manifest_hash = _sha(raw)
+        result = plan(root, manifest_path=manifest_path)
+        if result["status"] != "ok":
+            return result  # No evidence copies, notes or manifest are written on invalid preflight.
+        initialize_memory(root / "memory/markdown")
+        for entry in result["entries"]:
+            if entry["action"] != "unchanged":
+                entry["created_by_manifest"] = entry["kind"] != "upgrade"
+        result["status"] = "in_progress"
+        persist()
+        for entry in result["entries"]:
+            if entry["action"] == "unchanged":
+                if entry["kind"] == "proposal" and entry.get("card_missing"):
+                    from review_proposals import _read_proposal, _render_card
+                    proposal = _read_proposal(root / entry["target"], root)
+                    card = _relative(root / "memory/markdown", proposal["card_locator"], "candidate review card")
+                    _atomic(card, _render_card(proposal).encode("utf-8"), expected_sha256=None)
+                    entry["card_missing"] = False
                 continue
-            entry["action"] = "unchanged"
-        else:
-            _atomic(target, target_bytes)
-            created.append(entry["target"])
-            entry["action"] = "created"
-        entry["legacy"] = legacy.relative_to(root).as_posix()
-    result["created_markdown"] = created
-    result["status"] = "invalid" if any(item.get("action") == "blocked" for item in result["entries"]) else "migrated"
-    _atomic(manifest_path, yaml.safe_dump(result, allow_unicode=True, sort_keys=False).encode("utf-8"))
-    return result
+            source, target, evidence = _entry_paths(root, entry)
+            raw = source.read_bytes()
+            if _sha(raw) != entry["source_sha256"]:
+                raise MigrationError("source changed after migration preflight")
+            if evidence.exists() and evidence.read_bytes() != raw:
+                raise MigrationError("legacy evidence/backup differs; refusing overwrite")
+            if not evidence.exists():
+                _atomic(evidence, raw, expected_sha256=None)
+            rendered, proposal = _render_entry(root, entry, result["generated_at"])
+            if _sha(rendered) != entry["markdown_sha256"]:
+                raise MigrationError("migration rendering changed after preflight")
+            if entry["kind"] != "upgrade" and target.exists():
+                raise MigrationError("target appeared after preflight; refusing overwrite")
+            if entry["kind"] == "upgrade" and target.read_bytes() != raw:
+                raise MigrationError("Markdown changed after preflight; refusing overwrite")
+            _atomic(target, rendered, expected_sha256=entry["source_sha256"] if entry["kind"] == "upgrade" else None)
+            entry["action"] = "upgraded" if entry["kind"] == "upgrade" else "created"
+            if proposal is not None:
+                from review_proposals import _render_card
+                card = _relative(root / "memory/markdown", proposal["card_locator"], "candidate review card")
+                if card.exists() and card.read_bytes() != _render_card(proposal).encode("utf-8"):
+                    raise MigrationError("candidate review card already exists and differs")
+                if not card.exists():
+                    _atomic(card, _render_card(proposal).encode("utf-8"), expected_sha256=None)
+                entry["card_missing"] = False
+            persist()
+        rebuild_index(root / "memory/markdown")
+        result["status"] = "migrated"
+        persist()
+        verification = verify(manifest_path, root)
+        report = root / "memory/migration/reports" / ("verify-" + _sha(manifest_path.read_bytes())[:16] + ".json")
+        _atomic(report, json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"))
+        return result if verification["status"] == "ok" else dict(result, status="invalid", errors=verification["errors"])
 
 
-def verify(manifest_path: Path, root: Path = ROOT) -> dict[str, Any]:
-    root = Path(root).resolve()
-    manifest = _yaml_load(Path(manifest_path).read_bytes(), Path(manifest_path))
-    errors: list[str] = []
-    for entry in manifest.get("entries", []):
-        source, legacy = root / entry["source"], root / entry.get("legacy", "memory/legacy-json/" + entry["source"].removeprefix("memory/"))
-        if not source.is_file() or _sha(source.read_bytes()) != entry.get("source_sha256"):
-            errors.append(f"{entry['source']}: source hash mismatch")
-        if not legacy.is_file() or _sha(legacy.read_bytes()) != entry.get("source_sha256"):
-            errors.append(f"{entry['source']}: legacy hash mismatch")
-        if entry.get("target") and entry.get("action") in {"created", "unchanged"}:
-            target = root / entry["target"]
-            if not target.is_file() or _sha(target.read_bytes()) != entry.get("markdown_sha256"):
-                errors.append(f"{entry['target']}: Markdown hash mismatch")
-    return {"status": "invalid" if errors else "ok", "checked": len(manifest.get("entries", [])), "errors": errors}
-
-
-def rollback(manifest_path: Path, root: Path = ROOT) -> dict[str, Any]:
-    root = Path(root).resolve()
-    manifest = _yaml_load(Path(manifest_path).read_bytes(), Path(manifest_path))
-    removed: list[str] = []
-    skipped: list[str] = []
-    for entry in manifest.get("entries", []):
-        if entry.get("action") != "created" or not entry.get("target"):
+def verify(manifest_path: Path, root: Path = ROOT) -> dict:
+    root = _root(root)
+    manifest = _read_manifest(root, _manifest_path(root, manifest_path))
+    errors = list(manifest.get("errors", []))
+    for entry in manifest["entries"]:
+        if entry.get("action") == "blocked":
+            errors.append(entry.get("error", "blocked migration entry"))
             continue
-        target = root / entry["target"]
-        if target.is_file() and _sha(target.read_bytes()) == entry.get("markdown_sha256"):
-            target.unlink()
-            removed.append(entry["target"])
-        elif target.exists():
-            skipped.append(entry["target"])
-    return {"status": "rolled_back", "removed": removed, "skipped": skipped, "legacy_preserved": True}
+        source, target, evidence = _entry_paths(root, entry)
+        if not evidence.is_file() or _sha(evidence.read_bytes()) != entry["source_sha256"]:
+            errors.append(f"{entry['source']}: legacy/backup hash mismatch")
+        if entry["group"] != "markdown_upgrade" and (not source.is_file() or _sha(source.read_bytes()) != entry["source_sha256"]):
+            errors.append(f"{entry['source']}: source hash mismatch")
+        if entry.get("action") == "rolled_back":
+            if target.exists(): errors.append(f"{entry['target']}: rolled-back target reappeared")
+            continue
+        try:
+            if entry["group"] == "markdown_upgrade":
+                expected = render_note(parse_note(evidence.read_text(encoding="utf-8"), source)).encode("utf-8")
+            else:
+                expected, _ = _render_entry(root, entry, manifest["generated_at"])
+            if _sha(expected) != entry["markdown_sha256"]:
+                errors.append(f"{entry['target']}: source fields do not match the migration receipt")
+        except (ValueError, OSError, KeyError) as exc:
+            errors.append(f"{entry['source']}: source reconstruction failed ({type(exc).__name__})")
+        if not target.is_file() or _sha(target.read_bytes()) != entry["markdown_sha256"]:
+            errors.append(f"{entry['target']}: Markdown hash mismatch")
+        elif entry["kind"] == "proposal":
+            from review_proposals import _read_proposal
+            proposal = _read_proposal(target, root)
+            card = _relative(root / "memory/markdown", proposal["card_locator"], "candidate review card")
+            if not card.is_file() or _sha(card.read_bytes()) != proposal["card_sha256"]:
+                errors.append(f"{proposal['card_locator']}: candidate review card hash mismatch")
+        else:
+            parse_note(target.read_text(encoding="utf-8"), target)
+    from relations import check
+    graph = check(root / "memory/markdown")
+    errors.extend(str(item) for item in graph["errors"])
+    return {"status": "invalid" if errors else "ok", "checked": len(manifest["entries"]), "errors": errors}
+
+
+def rollback(manifest_path: Path, root: Path = ROOT, *, target: str | None = None) -> dict:
+    from checkpoint_continuity import _context_lock
+    root = _root(root)
+    manifest_path = _manifest_path(root, manifest_path)
+    with _context_lock(root, 5.0):
+        manifest = _read_manifest(root, manifest_path)
+        manifest_hash = _sha(manifest_path.read_bytes())
+        entries = [item for item in manifest["entries"] if item.get("created_by_manifest") and item.get("action") != "rolled_back"]
+        if target is not None:
+            entries = [item for item in entries if item["target"] == target]
+            if not entries: raise MigrationError("target is not a manifest-created Markdown file")
+        if len(entries) > 1:
+            raise MigrationError("batch deletion is disabled; select one manifest-created --target per invocation")
+        if not entries:
+            return {"status": "rolled_back", "removed": [], "legacy_preserved": True}
+        entry = entries[0]
+        _, path, _ = _entry_paths(root, entry)
+        if path.exists() and _sha(path.read_bytes()) != entry["markdown_sha256"]:
+            return {"status": "protected", "removed": [], "skipped": [entry["target"]], "legacy_preserved": True}
+        if entry["kind"] != "proposal" and path.exists():
+            from relations import _check_notes
+            notes = list_notes(root / "memory/markdown")
+            before_errors = _check_notes(notes)["errors"]
+            after_errors = _check_notes([item for item in notes if item["memory_id"] != entry["id"]])["errors"]
+            if any(error not in before_errors for error in after_errors):
+                return {"status": "protected", "removed": [], "skipped": [entry["target"]],
+                        "reason": "remove reciprocal relations through an approved proposal before rollback", "legacy_preserved": True}
+        if path.exists(): path.unlink()  # Exactly one validated, explicitly selected file.
+        entry["action"] = "rolled_back"
+        _atomic(manifest_path, yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False).encode("utf-8"), expected_sha256=manifest_hash)
+        rebuild_index(root / "memory/markdown")
+        return {"status": "rolled_back", "removed": [entry["target"]], "legacy_preserved": True}
 
 
 def _cli() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "migrate", "verify", "rollback"))
-    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--root", type=Path, default=ROOT, help="Mei checkout root, NOT memory/markdown")
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--target", help="One manifest-created Markdown path for rollback")
+    parser.add_argument("--maintainer", action="store_true", help="Confirm explicitly selected maintainer workflow; not an ACL grant")
     args = parser.parse_args()
-    path = args.manifest or args.root / "memory/migration/manifest.yaml"
     try:
-        result = plan(args.root, manifest_path=path) if args.command == "plan" else migrate(args.root, manifest_path=path) if args.command == "migrate" else verify(path, args.root) if args.command == "verify" else rollback(path, args.root)
-    except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+        if args.command in {"migrate", "rollback"} and not args.maintainer:
+            raise MigrationError("explicit --maintainer confirmation is required; filesystem permissions still apply")
+        path = args.manifest or args.root / "memory/migration/manifest.yaml"
+        result = (plan(args.root, manifest_path=path) if args.command == "plan" else
+                  migrate(args.root, manifest_path=path) if args.command == "migrate" else
+                  verify(path, args.root) if args.command == "verify" else rollback(path, args.root, target=args.target))
+    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") in {"ok", "migrated", "rolled_back"} else 1

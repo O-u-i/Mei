@@ -131,6 +131,51 @@ def fixture_root():
 
 
 class ContinuityTests(unittest.TestCase):
+    def test_explicit_local_binding_resolves_ambiguity_without_guessing(self):
+        from continuity_adapters import select_context
+        with fixture_root() as temp:
+            fixture = ContinuityFixture(temp)
+            index_path = fixture.mei / "registry/continuity.yaml"
+            index = yaml.safe_load(index_path.read_bytes())
+            index["entries"].append(dict(index["entries"][0], context_id="unreadable-other",
+                                         project_path=f"memory/continuity/{fixture.repo_id}/unreadable-other/project.json",
+                                         checkpointer_path=f"memory/continuity/{fixture.repo_id}/unreadable-other/checkpointer.json"))
+            index_raw = yaml.safe_dump(index).encode()
+            index_path.write_bytes(index_raw)
+            checkpointer_path = fixture.context_dir / "checkpointer.json"
+            checkpointer = json.loads(checkpointer_path.read_bytes())
+            checkpointer.update(index_sha256=hashlib.sha256(index_raw).hexdigest(),
+                                index_bytes=len(index_raw), index_lines=len(index_raw.splitlines()))
+            write_json(checkpointer_path, checkpointer)
+            self.assertEqual(select_context(fixture.repo, mei_root=fixture.mei)["status"], "context_ambiguous")
+            local = fixture.mei / "local"
+            local.mkdir()
+            config = local / "paths.toml"
+            config.write_text(f'[continuity.selected_contexts]\n{fixture.repo_id} = "{fixture.context_id}"\n', encoding="utf-8")
+            self.assertEqual(select_context(fixture.repo, mei_root=fixture.mei)["selection"], "explicit_local_binding")
+            config.write_text(f'[continuity.selected_contexts]\n{fixture.repo_id} = "missing"\n', encoding="utf-8")
+            with self.assertRaises(ContinuityError):
+                select_context(fixture.repo, mei_root=fixture.mei)
+
+    def test_v2_reads_unchanged_v1_continuity_protocol_without_rewriting(self):
+        with fixture_root() as temp:
+            fixture = ContinuityFixture(temp)
+            (fixture.mei / "VERSION").write_text("v2.0.0\n", encoding="utf-8")
+            paths = [fixture.mei / "registry" / "continuity.yaml",
+                     fixture.context_dir / "project.json", fixture.context_dir / "checkpointer.json"]
+            before = {path: path.read_bytes() for path in paths}
+            for host in ("gui", "tui"):
+                snapshot = load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei, host=host)
+                self.assertEqual(snapshot["status"], "clean")
+            self.assertEqual({path: path.read_bytes() for path in paths}, before)
+
+            index = yaml.safe_load(before[paths[0]])
+            for invalid_version in ("v0.9.0", "v2.1.0", "v3.0.0", "invalid"):
+                index["version"] = invalid_version
+                paths[0].write_text(yaml.safe_dump(index), encoding="utf-8")
+                with self.subTest(version=invalid_version), self.assertRaises(ContinuityError):
+                    load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+
     def test_two_frontends_read_one_context_without_writing(self):
         with fixture_root() as temp:
             fixture = ContinuityFixture(temp)

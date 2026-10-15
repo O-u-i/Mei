@@ -73,7 +73,8 @@ class MarkdownMemoryTests(unittest.TestCase):
         initialize_memory(root)
         first = write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
         retired = note("sample-note", "project", "Retired.").replace("status: active", "status: archived")
-        write_note(root, "project/sample-note.md", retired, expected_sha256=first["sha256"])
+        write_note(root, "project/sample-note.md", retired, expected_sha256=first["sha256"],
+                   approved_content_sha256=hashlib.sha256(retired.encode()).hexdigest())
         self.assertEqual(read_memory(root)["notes"], [])
         self.assertEqual(read_memory(root)["index"]["ids"], [])
         self.assertTrue((root / "project/sample-note.md").is_file())
@@ -84,10 +85,10 @@ class MarkdownMemoryTests(unittest.TestCase):
         root = fixture_root()
         initialize_memory(root)
         original = memory_markdown._atomic_write
-        def fail_index(path, raw):
+        def fail_index(path, raw, **kwargs):
             if path.name == "MEMORY.md":
                 raise OSError("synthetic index failure")
-            original(path, raw)
+            original(path, raw, **kwargs)
         with patch("memory_markdown._atomic_write", side_effect=fail_index):
             with self.assertRaises(OSError):
                 write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
@@ -110,8 +111,9 @@ class MarkdownMemoryTests(unittest.TestCase):
     def test_initialize_read_and_doctor(self):
         root = fixture_root()
         initialize_memory(root)
-        write_note(root, "domain/architecture-note.md", note("architecture-note", "domain", "Architecture details."))
-        write_note(root, "preferences/editor-choice.md", note("editor-choice", "preferences", "Prefer small diffs.", relationships=["architecture-note"]))
+        approved = note("architecture-note", "domain", "Architecture details.")
+        write_note(root, "domain/architecture-note.md", approved, approved_content_sha256=hashlib.sha256(approved.encode()).hexdigest())
+        write_note(root, "preferences/editor-choice.md", note("editor-choice", "preferences", "Prefer small diffs. See [[architecture-note]]."))
         (root / "MEMORY.md").write_text(
             "# Mei Memory\n\n- [[architecture-note]]\n- [[editor-choice]]\n",
             encoding="utf-8",

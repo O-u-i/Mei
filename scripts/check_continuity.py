@@ -341,7 +341,9 @@ def load_context(
     if index["schema_version"] != SCHEMA_VERSION:
         raise ContinuityError(f"{index_path}: unknown continuity index schema")
     release = _release_version(mei_root)
-    if release is not None and not supports_registry_version(index["version"], release):
+    # Mei v2 changes ordinary memory storage, not the validated v0.1.0 continuity protocol.
+    compatible_majors = (1,) if release is not None and release.startswith("v2.") else ()
+    if release is not None and not supports_registry_version(index["version"], release, compatible_majors=compatible_majors):
         raise ContinuityError(f"{index_path}: index version is invalid or newer than VERSION")
     if len(index["entries"]) > MAX_INDEX_ENTRIES:
         raise ContinuityError(f"{index_path}: too many context entries")

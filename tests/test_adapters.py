@@ -353,6 +353,7 @@ class TestSharedHomes(unittest.TestCase):
         fixture = self.make_fixture()
         (fixture.mei / "local").mkdir()
         (fixture.mei / "local/paths.toml").write_text(
+            f"[paths]\nobsidian_vault = '{fixture.root / 'external-vault'}'\n"
             "[host]\nobsidian_projection_profile = 'mei-obsidian-projection'\n", encoding="utf-8")
         wire = self.run_hook(fixture, "PostCompact", home=fixture.root / "gui-home", trigger="auto")
         self.assertTrue(wire["continue"])
@@ -360,3 +361,18 @@ class TestSharedHomes(unittest.TestCase):
         self.assertEqual(payload["context_id"], "shared")
         self.assertEqual(payload["memory"]["status"], "ok")
         self.assertEqual(payload["obsidian"]["status"], "obsidian_projection_stale")
+
+    def test_direct_root_post_compact_needs_no_projection_sandbox_or_note_copy(self):
+        fixture = self.make_fixture()
+        memory = fixture.mei / "memory/markdown"
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local/paths.toml").write_text(
+            f"[paths]\nmemory_root = '{memory}'\nobsidian_vault = '{memory}'\n"
+            "obsidian_memory_dir = ''\n[host]\nobsidian_projection_profile = 'mei-obsidian-projection'\n", encoding="utf-8")
+        before = {path: path.read_bytes() for path in memory.rglob("*") if path.is_file()}
+        wire = self.run_hook(fixture, "PostCompact", home=fixture.root / "gui-home", trigger="auto")
+        payload = json.loads(wire["systemMessage"].split(": ", 1)[1])
+        self.assertEqual(payload["obsidian"]["status"], "synced", payload)
+        self.assertTrue(payload["obsidian"]["direct_root"])
+        self.assertEqual({path: path.read_bytes() for path in memory.rglob("*") if path.is_file()}, before)
+        self.assertFalse((memory / "views").exists())

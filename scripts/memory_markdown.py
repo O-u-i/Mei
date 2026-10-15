@@ -27,6 +27,8 @@ MAX_NOTE_BYTES = 32_768
 MEMORY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 LINK_PATTERN = re.compile(r"\[\[([^]|#]+)(?:#[^]|]+)?(?:\|[^]]+)?\]\]")
 FORBIDDEN_PARTS = {"", ".", ".."}
+CATEGORIES = {"profile", "preferences", "domain", "procedural", "project", "feedback"}
+LOW_RISK_CATEGORIES = {"preferences", "project", "feedback"}
 
 
 class MemoryError(ValueError):
@@ -88,8 +90,12 @@ def _schema(root: Path = ROOT) -> dict:
 
 
 def _validate_frontmatter(value: dict[str, Any], source: Path, root: Path = ROOT) -> None:
+    schemas = [_schema(ROOT)]
+    if root.resolve() != ROOT.resolve():
+        schemas.append(_schema(root))  # Additional schemas may tighten, never replace, the runtime contract.
     errors = sorted(
-        Draft202012Validator(_schema(root), format_checker=FormatChecker()).iter_errors(value),
+        (error for schema in schemas for error in
+         Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(value)),
         key=lambda item: list(item.path),
     )
     if errors:
@@ -168,7 +174,7 @@ def parse_note(raw: str, source: Path, root: Path = ROOT) -> dict[str, Any]:
             **frontmatter,
             "schema_version": "v0.2.0",
             "source_format": frontmatter.get("source_format", "markdown"),
-            "provenance": frontmatter.get("provenance", [{"source": frontmatter.get("source", "legacy"), "locator": str(source), "evidence_type": "prior_memory", "verified_at": None}]),
+            "provenance": frontmatter.get("provenance", []),
             "review_due_at": frontmatter.get("review_due_at"),
             "review_triggers": frontmatter.get("review_triggers", []),
             "references": frontmatter.get("references", []),
@@ -216,6 +222,8 @@ def _validate_note_path(root: Path, path: Path, note: dict[str, Any]) -> None:
 
 def read_note(root: str | Path, locator: str, *, schema_root: str | Path | None = None) -> dict[str, Any]:
     memory_root = _memory_root(root)
+    if (memory_root / ".relation-transaction.json").exists():
+        raise MemoryError("incomplete relation transaction; explicit recovery is required")
     path = _relative(memory_root, locator, "note")
     if not path.is_file():
         raise MemoryError(f"{path}: note is missing")
@@ -225,6 +233,8 @@ def read_note(root: str | Path, locator: str, *, schema_root: str | Path | None 
     _validate_note_path(memory_root, path, note)
     note["path"] = _note_locator(memory_root, path)
     note["sha256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    if (memory_root / ".relation-transaction.json").exists():
+        raise MemoryError("relation transaction in progress; retry after commit")
     return note
 
 
@@ -258,14 +268,18 @@ def list_notes(root: str | Path, *, schema_root: str | Path | None = None) -> li
     memory_root = _memory_root(root)
     if not memory_root.is_dir():
         raise MemoryError(f"{memory_root}: memory root is missing")
+    if (memory_root / ".relation-transaction.json").exists():
+        raise MemoryError("incomplete relation transaction; explicit recovery is required")
     notes: list[dict[str, Any]] = []
     for path in sorted(memory_root.glob("*/*.md")):
-        if path.parent.name in {"archive", "views", "inbox", "review"}:
-            continue  # Evidence archives are deliberately outside active recall.
+        if path.parent.name not in CATEGORIES:
+            continue  # Proposals, generated views and evidence never become canonical notes.
         notes.append(read_note(memory_root, path.relative_to(memory_root).as_posix(), schema_root=schema_root))
     ids = [note["memory_id"] for note in notes]
     if len(ids) != len(set(ids)):
         raise MemoryError("duplicate memory_id in Markdown notes")
+    if (memory_root / ".relation-transaction.json").exists():
+        raise MemoryError("relation transaction in progress; retry after commit")
     return notes
 
 
@@ -273,9 +287,14 @@ def read_memory(root: str | Path, relevant_ids: set[str] | None = None, *, schem
     index = read_index(root)
     memory_root = _memory_root(root)
     if relevant_ids is None:
+        all_notes = list_notes(memory_root, schema_root=schema_root)
+        from relations import _check_notes
+        graph = _check_notes(all_notes)
+        if graph["status"] != "ok":
+            raise MemoryError(f"relation graph invalid: {graph['errors']}")
         # Notes awaiting provenance review are evidence, not default context.
         notes = [
-            note for note in list_notes(memory_root, schema_root=schema_root)
+            note for note in all_notes
             if note["status"] == "active" and not note.get("review_required", False)
         ]
     else:
@@ -283,10 +302,13 @@ def read_memory(root: str | Path, relevant_ids: set[str] | None = None, *, schem
         for memory_id in sorted(relevant_ids):
             if not MEMORY_ID_PATTERN.fullmatch(memory_id):
                 raise MemoryError(f"invalid relevant memory_id: {memory_id}")
-            matches = sorted(memory_root.glob(f"*/{memory_id}.md"))
+            matches = [path for path in memory_root.glob(f"*/{memory_id}.md") if path.parent.name in CATEGORIES]
             if len(matches) != 1:
                 raise MemoryError(f"memory index target is missing or duplicated: {memory_id}")
-            notes.append(read_note(memory_root, matches[0].relative_to(memory_root).as_posix(), schema_root=schema_root))
+            note = read_note(memory_root, matches[0].relative_to(memory_root).as_posix(), schema_root=schema_root)
+            if note["status"] != "active" or note.get("review_required"):
+                raise MemoryError(f"{memory_id}: note is not available for active retrieval")
+            notes.append(note)
     return {"index": index, "notes": notes}
 
 
@@ -310,6 +332,10 @@ def doctor(root: str | Path, *, schema_root: str | Path | None = None) -> dict[s
                 if not MEMORY_ID_PATTERN.fullmatch(target) or target not in note_ids:
                     raise MemoryError(f"{note['path']}: unsafe or missing link target: {target}")
                 targets.add(target)
+        from relations import check
+        relations = check(root)
+        if relations["status"] != "ok":
+            raise MemoryError(f"relation graph invalid: {relations['errors']}")
         return {
             "status": "ok",
             "index": {key: value for key, value in memory["index"].items() if key != "text"},
@@ -320,17 +346,43 @@ def doctor(root: str | Path, *, schema_root: str | Path | None = None) -> dict[s
         return {"status": "invalid", "error": str(exc)}
 
 
-def _atomic_write(path: Path, raw: bytes) -> None:
+def _atomic_write(path: Path, raw: bytes, *, create_only: bool = False) -> None:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("xb") as stream:
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        if create_only:
+            os.link(temporary, path)
+        else:
+            os.replace(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def rebuild_index(root: str | Path) -> bytes:
+    """Explicit maintainer rebuild; ordinary reads never rewrite derived data."""
+    memory_root = _memory_root(root)
+    raw = _index_bytes(list_notes(memory_root))
+    path = _relative(memory_root, INDEX_NAME, "index")
+    _index_value(raw, path)
+    if not path.exists() or path.read_bytes() != raw:
+        _atomic_write(path, raw)
+    return raw
+
+
+def _index_bytes(notes: list[dict[str, Any]]) -> bytes:
+    active = [item for item in notes if item["status"] == "active" and not item.get("review_required")]
+    lines = ["# Mei Memory", "", "<!-- Generated bounded index; detail notes remain the source. -->", ""]
+    for category in sorted({item["category"] for item in active}):
+        lines.extend([f"## {category}", ""])
+        for item in sorted(active, key=lambda value: value["memory_id"]):
+            if item["category"] == category:
+                lines.append(f"- [[{item['memory_id']}]] {' '.join(item['scope'].split())}")
+        lines.append("")
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def write_note(
@@ -340,6 +392,7 @@ def write_note(
     *,
     expected_sha256: str | None = None,
     schema_root: str | Path | None = None,
+    approved_content_sha256: str | None = None,
 ) -> dict[str, Any]:
     memory_root = _memory_root(root)
     path = _relative(memory_root, locator, "note")
@@ -351,6 +404,9 @@ def write_note(
     from checkpoint_continuity import _LockTimeout, _context_lock
 
     raw = content.encode("utf-8")
+    approved = approved_content_sha256 is not None
+    if approved and approved_content_sha256 != hashlib.sha256(raw).hexdigest():
+        raise MemoryError("approved content hash does not match the proposed note")
     try:
         with _context_lock(memory_root, 5.0):
             index_path = _relative(memory_root, INDEX_NAME, "index")
@@ -358,43 +414,46 @@ def write_note(
             read_index(memory_root)
             current = path.read_bytes() if path.exists() else None
             current_sha256 = hashlib.sha256(current).hexdigest() if current is not None else None
-            if expected_sha256 is not None and current_sha256 != expected_sha256:
+            if (expected_sha256 is not None or approved) and current_sha256 != expected_sha256:
                 raise MemoryError(f"{path}: stale note hash; reread before writing")
-            if current is not None and current != raw and expected_sha256 is None:
-                raise MemoryError("expected note hash is required for an update")
             notes = list_notes(memory_root, schema_root=schema_root)
             if any(item["memory_id"] == note["memory_id"] and item["path"] != locator.replace("\\", "/") for item in notes):
                 raise MemoryError("duplicate memory_id in another category")
+            if not approved and (current is not None or note["category"] not in LOW_RISK_CATEGORIES
+                                 or note["status"] != "active" or note.get("related")
+                                 or note.get("relationships") or note.get("relations")):
+                raise MemoryError("explicit approved proposal is required for existing/high-risk notes or relations")
+            previous_note = parse_note(current.decode("utf-8"), path, Path(schema_root or ROOT)) if current else {}
+            if approved and any(note.get(key, []) != previous_note.get(key, []) for key in ("related", "relationships", "relations")):
+                raise MemoryError("relation changes require an approved reciprocal relation proposal")
             notes = [item for item in notes if item["memory_id"] != note["memory_id"]] + [note]
-            active = [item for item in notes if item["status"] == "active"]
+            active = [item for item in notes if item["status"] == "active" and not item.get("review_required")]
             active_ids = {item["memory_id"] for item in active}
             for item in active:
                 for target in set(LINK_PATTERN.findall(item["body"])) | set(item.get("relationships", [])):
                     if target.strip() not in active_ids:
                         raise MemoryError("unsafe or missing link target in proposed memory")
-            lines = ["# Mei Memory", "", "<!-- Generated bounded index; detail notes remain the source. -->", ""]
-            for category in sorted({item["category"] for item in active}):
-                lines.extend([f"## {category}", ""])
-                for item in sorted(active, key=lambda value: value["memory_id"]):
-                    if item["category"] == category:
-                        lines.append(f"- [[{item['memory_id']}]] {' '.join(item['scope'].split())}")
-                lines.append("")
-            index_raw = ("\n".join(lines) + "\n").encode("utf-8")
+            index_raw = _index_bytes(notes)
             _index_value(index_raw, index_path)  # Reject over-cap writes before touching the note.
             _assert_no_reparse(path.parent)
             if index_path.read_bytes() != previous_index or (path.read_bytes() if path.exists() else None) != current:
                 raise MemoryError("memory changed externally; reread before writing")
+            note_written = False
             try:
                 if current != raw:
-                    _atomic_write(path, raw)
+                    _atomic_write(path, raw, create_only=current is None)
+                    note_written = True
                 if previous_index != index_raw:
                     _atomic_write(index_path, index_raw)
             except OSError:
                 # Restore only this explicitly selected note on an index-write failure.
-                if current is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    _atomic_write(path, current)
+                if note_written:
+                    if not path.exists() or path.read_bytes() != raw:
+                        raise MemoryError("note changed during rollback; external changes were preserved")
+                    if current is None:
+                        path.unlink()
+                    else:
+                        _atomic_write(path, current)
                 raise
             if path.read_bytes() != raw:
                 raise MemoryError(f"{path}: readback differs from the written note")
@@ -406,6 +465,9 @@ def write_note(
 def memory_digest(root: str | Path) -> dict[str, Any]:
     """Return the bounded index for host startup; never raises (fail-open)."""
     try:
+        report = doctor(root)
+        if report["status"] != "ok":
+            raise MemoryError(report["error"])
         index = read_index(root)
     except (MemoryError, OSError, UnicodeError) as exc:
         return {"status": "unavailable", "error": str(exc)}
@@ -466,7 +528,7 @@ def _cli() -> int:
         elif args.command == "doctor":
             result = doctor(args.root)
         elif args.command == "read":
-            result = read_memory(args.root, set(args.ids or []))
+            result = read_memory(args.root, set(args.ids) if args.ids else None)
             result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
         else:
             if not args.reviewed_personal:

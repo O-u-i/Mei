@@ -43,6 +43,8 @@ def note(memory_id: str, body: str) -> str:
 
 
 def setup(root: Path):
+    for name in ("synthetic", "new-evidence"):
+        (root / name).write_text("Synthetic current evidence for proposal tests.\n", encoding="utf-8")
     memory = root / "memory" / "markdown"
     vault = root / "vault"
     vault.mkdir()

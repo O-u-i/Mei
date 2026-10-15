@@ -15,6 +15,8 @@ PUBLIC_FILES = frozenset(
         ".gitignore",
         "README.md",
         "VERSION",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
         "docs/architecture/memory-read.architecture.json",
         "docs/architecture/memory-read.html",
         "docs/architecture/memory-read.svg",

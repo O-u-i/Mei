@@ -65,34 +65,24 @@ def _relation_module() -> Any:
 
 def _relation_command(args: argparse.Namespace) -> dict[str, Any]:
     module = _relation_module()
-    root = args.root or resolve_memory_root()
+    root = args.root or resolve_memory_root(args.mei_root)
     action = args.relation_action
+    if action == "traverse":
+        return module.traverse(root, args.source or "", depth=args.depth)
+    if action == "recover":
+        if args.capability != "P3":
+            raise MemoryError("P3 capability is required for explicit transaction recovery")
+        return module.recover(root, journal_sha256=args.journal_sha256 or "", confirm=args.confirm)
     if action == "check":
-        fn = getattr(module, "check", None) or getattr(module, "check_relations", None)
-        if fn is None:
-            raise MemoryError("relation checker is unavailable")
-        return fn(root)
+        return module.check(root)
     if action == "repair":
-        fn = getattr(module, "repair", None) or getattr(module, "repair_relations", None) or getattr(module, "repair_proposal", None)
-        if fn is None:
-            raise MemoryError("relation repair is unavailable")
-        try:
-            return fn(root, proposal=args.proposal)
-        except TypeError:
-            return fn(root)
+        if not args.proposal:
+            raise MemoryError("repair only drafts proposals; pass --proposal")
+        return module.repair_proposal(root, mei_root=args.mei_root)
     if not args.source or not args.target:
         raise MemoryError(f"relations {action} requires SOURCE and TARGET")
-    fn = getattr(module, action, None)
-    if fn is None:
-        raise MemoryError(f"relation operation is unavailable: {action}")
-    kwargs: dict[str, Any] = {"root": root}
-    if args.relation_type:
-        kwargs["relation_type"] = args.relation_type
-    try:
-        return fn(args.source, args.target, **kwargs)
-    except TypeError:
-        # Accept the common ``fn(root, source, target, ...)`` module shape.
-        return fn(root, args.source, args.target, **({"relation_type": args.relation_type} if args.relation_type else {}))
+    return module.draft_relation(root, args.source, args.target, args.relation_type or "related",
+                                 operation=action, mei_root=args.mei_root)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -100,6 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--root", type=Path, help="Markdown vault root; defaults to local/paths.toml")
     common.add_argument("--schema-root", type=Path)
+    common.add_argument("--mei-root", type=Path, default=Path(__file__).resolve().parents[1], help="Mei checkout for proposal store/config; --root remains the Markdown root.")
     common.add_argument("--capability", choices=("P1", "P2", "P3"), default="P1")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -136,25 +127,29 @@ def _parser() -> argparse.ArgumentParser:
     apply.add_argument("--confirm", action="store_true")
 
     relation = sub.add_parser("relations", parents=[common])
-    relation.add_argument("relation_action", choices=("add", "remove", "check", "repair"))
+    relation.add_argument("relation_action", choices=("add", "remove", "check", "repair", "traverse", "recover"))
     relation.add_argument("source", nargs="?")
     relation.add_argument("target", nargs="?")
     relation.add_argument("--type", dest="relation_type")
     relation.add_argument("--proposal", action="store_true")
+    relation.add_argument("--depth", type=int, default=1)
+    relation.add_argument("--journal-sha256")
+    relation.add_argument("--confirm", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        root = args.root or resolve_memory_root()
+        root = args.root or resolve_memory_root(args.mei_root)
         schema_root = args.schema_root
         if args.command == "init":
             result: dict[str, Any] = {"status": "initialized", "created": initialize_memory(root)}
         elif args.command == "doctor":
             result = doctor(root, schema_root=schema_root)
         elif args.command == "read":
-            result = read_memory(root, set(args.ids or []), schema_root=schema_root)
+            result = read_memory(root, set(args.ids) if args.ids else None, schema_root=schema_root)
+            result["status"] = "ok"
             result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
         elif args.command == "search":
             query = args.query_flag or args.query
@@ -172,7 +167,12 @@ def main(argv: list[str] | None = None) -> int:
             source = {"kind": args.source_kind, "locator": args.source}
             if args.source_sha256:
                 source["sha256"] = args.source_sha256
-            result = draft_proposal(args.target_type, args.target, content, scope=args.scope, source=source, reason=args.reason, proposal_id=args.proposal_id, mei_root=root)
+            if root.resolve() != resolve_memory_root(args.mei_root):
+                raise MemoryError("--root differs from the selected Mei memory_root")
+            target = args.target
+            if args.target_type == "personal_markdown" and not target.startswith("memory/markdown/"):
+                target = "memory/markdown/" + target
+            result = draft_proposal(args.target_type, target, content, scope=args.scope, source=source, reason=args.reason, proposal_id=args.proposal_id, mei_root=args.mei_root)
         elif args.command == "apply":
             if args.capability != "P3":
                 raise MemoryError("P3 capability is required for approved apply")
@@ -181,13 +181,15 @@ def main(argv: list[str] | None = None) -> int:
             proposal_id = args.proposal_id_flag or args.proposal_id
             if not proposal_id:
                 raise MemoryError("apply requires a proposal id")
-            result = apply_proposal(proposal_id, confirm=args.confirm, mei_root=root)
+            if root.resolve() != resolve_memory_root(args.mei_root):
+                raise MemoryError("--root differs from the selected Mei memory_root")
+            result = apply_proposal(proposal_id, confirm=args.confirm, mei_root=args.mei_root)
         else:
             result = _relation_command(args)
     except (MemoryError, OSError, UnicodeError, ValueError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get("status") not in {"error", "invalid"} else 1
+    return 0 if result.get("status") in {"ok", "initialized", "written", "drafted", "updated", "applied", "already_applied", "proposal_created", "no_drift", "recovered"} else 1
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 !/.gitignore
 !/README.md
 !/VERSION
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
 !/requirements.txt
 
 # Generic configuration examples only.

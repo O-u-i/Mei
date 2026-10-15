@@ -35,6 +35,14 @@ def select_context(repo_root: str | Path, *, mei_root: str | Path, remote: str |
     else:
         from check_continuity import _read_yaml, _validate, _assert_no_reparse, _assert_private, MAX_INDEX_LINES, repo_id_for
     repo_id = repo_id_for(repo_root, remote)
+    selected = _local_config(Path(mei_root)).get("continuity", {}).get("selected_contexts", {}).get(repo_id)
+    if selected is not None:
+        # A local explicit repo/context binding is not a guess from a writable path.
+        state = load_context(repo_root, selected, mei_root=mei_root, remote=remote)
+        if state["project"]["status"] == "completed":
+            return {"status": "context_completed", "repo_id": repo_id, "context_id": selected,
+                    "required_action": "select_active_context"}
+        return {"status": "selected", "repo_id": repo_id, "context_id": selected, "selection": "explicit_local_binding"}
     index_path = Path(mei_root) / "registry" / "continuity.yaml"
     _assert_no_reparse(index_path)
     if not index_path.is_file():
@@ -104,6 +112,13 @@ def _injection_enabled(mei_root: Path) -> bool:
     return value is not False
 
 
+def _direct_vault(mei_root: Path) -> bool:
+    paths = _local_config(mei_root).get("paths", {})
+    vault = paths.get("obsidian_vault")
+    memory = paths.get("memory_root", mei_root / "memory/markdown")
+    return not vault or Path(vault).expanduser().resolve() == Path(memory).expanduser().resolve()
+
+
 def _refresh_projection(mei_root: Path, generation: Any) -> dict[str, Any]:
     """Refresh the Obsidian view after compact; staleness never blocks continuity."""
     try:
@@ -112,12 +127,17 @@ def _refresh_projection(mei_root: Path, generation: Any) -> dict[str, Any]:
         from sync_obsidian import sync_obsidian
         from memory_markdown import resolve_memory_root
 
-        result = sync_obsidian(None, f"continuity-{generation}", memory_root=resolve_memory_root(mei_root), config_path=mei_root / "local" / "paths.toml")
+        paths = _local_config(mei_root).get("paths", {})
+        direct = _direct_vault(mei_root)
+        result = sync_obsidian(None if direct else paths.get("obsidian_vault"), f"continuity-{generation}",
+                               memory_root=resolve_memory_root(mei_root), namespace=None if direct else paths.get("obsidian_memory_dir"),
+                               config_path=mei_root / "local" / "paths.toml")
     except Exception as exc:
         return {"status": "obsidian_projection_stale", "reason": type(exc).__name__}
     if result.get("status") != "synced":
         return {"status": "obsidian_projection_stale", "reason": result.get("status")}
-    return {"status": "synced", "added": result["added"], "updated": result["updated"]}
+    return {"status": "synced", "direct_root": result.get("direct_root", False),
+            "added": result["added"], "updated": result["updated"]}
 
 
 def _sandboxed_hook(args: argparse.Namespace, envelope: dict[str, Any], host: str, actual_home: Path,
@@ -233,12 +253,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="auto", choices=sorted(SUPPORTED_HOSTS | {"auto"}))
     parser.add_argument("--writer-thread-id", help="Optional: restrict lifecycle writes to one native thread.")
     parser.add_argument("--codex-home", type=Path, help="Optional: restrict lifecycle writes to one CODEX_HOME.")
+    parser.add_argument("--diagnose", action="store_true", help="Read-only host/context/memory diagnostics; no hook input or writes.")
     parser.add_argument("--lifecycle-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--projection-child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     actual_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     home_matches = not args.codex_home or actual_home.resolve() == args.codex_home.resolve()
     host = args.host if args.host != "auto" else _host_for_home(args.mei_root, actual_home)
+    if args.diagnose:
+        try:
+            repository = args.repo_root or Path.cwd()
+            selected = {"status": "selected", "context_id": args.context_id} if args.context_id else select_context(repository, mei_root=args.mei_root)
+            result = {"status": "ok", "host": host, "codex_home": str(actual_home), "context": selected,
+                      "memory": _memory_digest(args.mei_root), "native_permissions_verified": False,
+                      "cold_session_verified": False}
+            if selected.get("status") == "selected":
+                state = read_context(repository, selected["context_id"], host=host, mei_root=args.mei_root)
+                result["context"].update({"status": state["status"], "project_sha256": state["project_sha256"],
+                                         "generation": state["checkpointer"]["generation"]})
+            if selected.get("status") not in {"selected", "clean"} or result["memory"].get("status") != "ok":
+                result["status"] = "needs_attention"
+        except (ContinuityError, OSError, ValueError, TypeError) as exc:
+            result = {"status": "unavailable", "error": type(exc).__name__}
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["status"] == "ok" else 1
     event = None
     automatic = False
     startup = False
@@ -271,7 +309,8 @@ def main(argv: list[str] | None = None) -> int:
                 selection = {"status": "context_invalid", "required_action": "explicit_reconcile"}
         context_id = selection.get("context_id")
         projection_failure = None
-        if event == "PostCompact" and not args.projection_child:
+        direct_vault = event == "PostCompact" and _direct_vault(args.mei_root)
+        if event == "PostCompact" and not direct_vault and not args.projection_child:
             try:
                 projected = _sandboxed_hook(args, envelope, host, actual_home, context_id,
                                            selection="obsidian_projection_profile", profile_name="mei-obsidian-projection",
@@ -300,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                 context["memory"] = _memory_digest(args.mei_root)
             if event == "PostCompact":
                 context["obsidian"] = projection_failure or (_refresh_projection(args.mei_root, context.get("generation", "none"))
-                                       if args.projection_child else {"status": "obsidian_projection_stale", "reason": "projection_writer_not_selected"})
+                                       if direct_vault or args.projection_child else {"status": "obsidian_projection_stale", "reason": "projection_writer_not_selected"})
             context["authority"] = "Transient task context only; current user instructions provide authorization."
             content = json.dumps(context, ensure_ascii=False)
             if event == "SessionStart":

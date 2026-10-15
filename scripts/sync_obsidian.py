@@ -1,4 +1,4 @@
-"""Project Mei Markdown memory into the configured local Obsidian vault namespace."""
+"""Validate the direct canonical vault, with explicit legacy projection compatibility."""
 
 from __future__ import annotations
 
@@ -316,9 +316,18 @@ def sync_obsidian(
     memory_root = Path(memory_root or resolve_memory_root()).expanduser()
     _assert_no_reparse(memory_root)
     memory_root = memory_root.resolve()
+    if vault_root is None:
+        vault_root = memory_root
+        namespace = "." if namespace is None else namespace
     if namespace is None and vault_root is not None and Path(vault_root).expanduser().resolve() == memory_root:
         namespace = "."
     vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace, config_path=config_path)
+    if vault == memory_root and namespace_path == vault:
+        report = markdown_doctor(memory_root)
+        return {**report, "status": ("synced" if mode == "sync" else "ok") if report["status"] == "ok" else "invalid",
+                "direct_root": True, "namespace": ".", "committed": False,
+                "added": [], "updated": [], "unchanged": [], "drifted": [],
+                "legacy_projection_present": (vault / "views").exists()}
     if not namespace_path.exists() and mode == "check":
         return {"status": "missing", "namespace": namespace_name, "required_action": "sync"}
     def make_plan() -> dict[str, Any]:
@@ -378,9 +387,14 @@ def check_vault(
     memory_root: str | Path | None = None,
 ) -> dict[str, Any]:
     try:
+        if vault_root is None and memory_root is not None:
+            vault_root, namespace = memory_root, namespace or "."
         if namespace is None and vault_root is not None and memory_root is not None and Path(vault_root).expanduser().resolve() == Path(memory_root).expanduser().resolve():
             namespace = "."
         vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace)
+        if memory_root is not None and vault == Path(memory_root).resolve() and namespace_path == vault:
+            report = markdown_doctor(memory_root)
+            return {**report, "direct_root": True, "namespace": ".", "errors": [] if report["status"] == "ok" else [report["error"]]}
         if not namespace_path.is_dir():
             return {"status": "missing", "namespace": namespace_name, "errors": ["Mei namespace is missing"]}
         manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
@@ -449,9 +463,15 @@ def note_uri(vault_root: str | Path | None, locator: str, *, namespace: str | No
     """Build an open-only URI for one validated generated page; never launch it."""
     vault, namespace_path, _ = resolve_vault(vault_root, namespace)
     prefix = _namespace_prefix(vault, namespace_path)
-    if not PATH_PATTERN.fullmatch(locator):
-        raise MemoryError("URI target must be a generated views/<memory_id>.md note")
+    direct = namespace_path == vault and (vault / INDEX_NAME).is_file()
+    canonical = re.fullmatch(r"(?:profile|preferences|domain|procedural|project|feedback)/[a-z0-9][a-z0-9-]{2,79}\.md", locator)
+    if not ((direct and canonical) or (not direct and PATH_PATTERN.fullmatch(locator))):
+        raise MemoryError("URI target must be a canonical category/<memory_id>.md note (legacy namespaces use views/)")
     path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}{locator}", "URI note")
+    if direct:
+        read_note = __import__("memory_markdown").read_note
+        read_note(vault, locator)
+        return "obsidian://open?" + urlencode({"vault": str(vault), "file": locator})
     manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
     entry = (manifest or {}).get("notes", {}).get(path.stem)
     if not entry or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry["rendered_sha256"]:
@@ -466,12 +486,16 @@ def import_inbox(vault_root: str | Path | None, filename: str, *, memory_root: s
         raise MemoryError("explicit personal scope and privacy review is required")
     if not filename.endswith(".md") or "/" in filename or "\\" in filename:
         raise MemoryError("inbox input must be one Markdown filename")
+    if vault_root is None:
+        vault_root = memory_root or resolve_memory_root()
+        namespace = "." if namespace is None else namespace
     if namespace is None and vault_root is not None and memory_root is not None and Path(vault_root).expanduser().resolve() == Path(memory_root).expanduser().resolve():
         namespace = "."
     vault, namespace_path, _ = resolve_vault(vault_root, namespace)
     prefix = _namespace_prefix(vault, namespace_path)
     path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}inbox/{filename}", "inbox capture")
-    raw = path.read_bytes()
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_VAULT_NOTE_BYTES + 1)
     note = parse_note(raw.decode("utf-8"), path)
     if note.get("review_required"):
         return {"status": "review_required", "required_action": "explicit_curator_task", "source_preserved": True,
@@ -490,7 +514,7 @@ def _cli() -> int:
     parser.add_argument("--vault", type=Path)
     parser.add_argument("--namespace")
     parser.add_argument("--memory-root", type=Path)
-    parser.add_argument("--note", help="views/<memory_id>.md for uri; one filename for import-inbox")
+    parser.add_argument("--note", help="category/<memory_id>.md for direct-root uri (legacy: views/); one filename for import-inbox")
     parser.add_argument("--reviewed-personal", action="store_true")
     parser.add_argument("--expected-sha256")
     parser.add_argument("--source-generation", default="manual")
@@ -502,7 +526,7 @@ def _cli() -> int:
         elif args.command == "check":
             result = check_vault(args.vault, namespace=args.namespace, memory_root=args.memory_root or resolve_memory_root())
         elif args.command == "uri":
-            result = {"status": "ok", "uri": note_uri(args.vault, args.note or "", namespace=args.namespace)}
+            result = {"status": "ok", "uri": note_uri(args.vault or args.memory_root, args.note or "", namespace=args.namespace)}
         else:
             result = import_inbox(args.vault, args.note or "", memory_root=args.memory_root, namespace=args.namespace,
                                   reviewed_personal=args.reviewed_personal, expected_sha256=args.expected_sha256)
