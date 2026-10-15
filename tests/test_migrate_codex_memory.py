@@ -37,6 +37,34 @@ def snapshot(path: Path) -> dict[str, bytes]:
 
 
 class MigrationTests(unittest.TestCase):
+    def test_new_snapshot_preserves_prior_bytes_and_reports_privacy_blocks(self):
+        root, source, mei = fixture()
+        first = mei / "local/first.json"
+        second = mei / "local/second.json"
+        migrate({"gui": source}, mei, first, snapshot_id="first")
+        old = (mei / "memory/markdown/archive/codex-gui/first/MEMORY.md").read_bytes()
+        (source / "MEMORY.md").write_text("New source.\n", encoding="utf-8")
+        migrate({"gui": source}, mei, second, snapshot_id="second")
+        self.assertEqual((mei / "memory/markdown/archive/codex-gui/first/MEMORY.md").read_bytes(), old)
+        report = verify(second, mei)
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["unresolved"][0]["path"], "rollout_summaries/leak.md")
+        with self.assertRaises(FileExistsError):
+            migrate({"gui": source}, mei, second, snapshot_id="second")
+
+    def test_manifest_path_escape_is_rejected_before_reading_target(self):
+        from memory_markdown import MemoryError
+
+        root, source, mei = fixture()
+        path = mei / "local/manifest.json"
+        migrate({"gui": source}, mei, path)
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        copied = next(entry for entry in manifest["hosts"]["gui"]["entries"] if entry["action"] == "copied")
+        copied["target"] = "../outside.md"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(MemoryError, "unsafe"):
+            verify(path, mei)
+
     def test_copies_eligible_files_only_and_leaves_source_untouched(self):
         root, source, mei = fixture()
         before = snapshot(source)

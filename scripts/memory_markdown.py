@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import uuid
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,34 @@ FORBIDDEN_PARTS = {"", ".", ".."}
 
 class MemoryError(ValueError):
     """A deterministic failure at the Markdown memory boundary."""
+
+
+def resolve_memory_root(mei_root: str | Path = ROOT) -> Path:
+    """Resolve the shared personal locator, never the host's native memories."""
+    mei = Path(mei_root).expanduser()
+    _assert_no_reparse(mei)
+    mei = mei.resolve()
+    config_path = mei / "local" / "paths.toml"
+    paths = {}
+    if config_path.exists():
+        _assert_no_reparse(config_path)
+        try:
+            paths = tomllib.loads(config_path.read_text(encoding="utf-8")).get("paths", {})
+        except (OSError, ValueError) as exc:
+            raise MemoryError("cannot read configured memory locator") from exc
+    root = Path(paths.get("memory_root", mei / "memory" / "markdown")).expanduser()
+    if not root.is_absolute():
+        raise MemoryError("configured memory_root must be absolute")
+    _assert_no_reparse(root)
+    if not root.resolve().is_relative_to(mei / "memory" / "markdown"):
+        raise MemoryError("configured memory_root must stay in Mei's personal Markdown namespace")
+    return root.resolve()
+
+
+def _memory_root(root: str | Path) -> Path:
+    value = Path(root).expanduser()
+    _assert_no_reparse(value)
+    return value.resolve()
 
 
 class _UniqueLoader(yaml.SafeLoader):
@@ -168,11 +197,12 @@ def _validate_note_path(root: Path, path: Path, note: dict[str, Any]) -> None:
 
 
 def read_note(root: str | Path, locator: str, *, schema_root: str | Path | None = None) -> dict[str, Any]:
-    memory_root = Path(root).expanduser().resolve()
+    memory_root = _memory_root(root)
     path = _relative(memory_root, locator, "note")
     if not path.is_file():
         raise MemoryError(f"{path}: note is missing")
-    raw = path.read_text(encoding="utf-8")
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_NOTE_BYTES + 1).decode("utf-8")
     note = parse_note(raw, path, Path(schema_root or ROOT))
     _validate_note_path(memory_root, path, note)
     note["path"] = _note_locator(memory_root, path)
@@ -180,12 +210,7 @@ def read_note(root: str | Path, locator: str, *, schema_root: str | Path | None 
     return note
 
 
-def read_index(root: str | Path) -> dict[str, Any]:
-    memory_root = Path(root).expanduser().resolve()
-    path = memory_root / INDEX_NAME
-    if not path.is_file():
-        raise MemoryError(f"{path}: memory index is missing")
-    raw = path.read_bytes()
+def _index_value(raw: bytes, path: Path) -> dict[str, Any]:
     if len(raw) > MAX_INDEX_BYTES:
         raise MemoryError(f"{path}: index exceeds {MAX_INDEX_BYTES} byte hard cap")
     text = raw.decode("utf-8")
@@ -202,12 +227,23 @@ def read_index(root: str | Path) -> dict[str, Any]:
     return {"path": INDEX_NAME, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "ids": ids, "text": text}
 
 
+def read_index(root: str | Path) -> dict[str, Any]:
+    memory_root = _memory_root(root)
+    path = _relative(memory_root, INDEX_NAME, "index")
+    if not path.is_file():
+        raise MemoryError(f"{path}: memory index is missing")
+    with path.open("rb") as stream:
+        return _index_value(stream.read(MAX_INDEX_BYTES + 1), path)
+
+
 def list_notes(root: str | Path, *, schema_root: str | Path | None = None) -> list[dict[str, Any]]:
-    memory_root = Path(root).expanduser().resolve()
+    memory_root = _memory_root(root)
     if not memory_root.is_dir():
         raise MemoryError(f"{memory_root}: memory root is missing")
     notes: list[dict[str, Any]] = []
     for path in sorted(memory_root.glob("*/*.md")):
+        if path.parent.name == "archive":
+            continue  # Evidence archives are deliberately outside active recall.
         notes.append(read_note(memory_root, path.relative_to(memory_root).as_posix(), schema_root=schema_root))
     ids = [note["memory_id"] for note in notes]
     if len(ids) != len(set(ids)):
@@ -217,9 +253,9 @@ def list_notes(root: str | Path, *, schema_root: str | Path | None = None) -> li
 
 def read_memory(root: str | Path, relevant_ids: set[str] | None = None, *, schema_root: str | Path | None = None) -> dict[str, Any]:
     index = read_index(root)
-    memory_root = Path(root).expanduser().resolve()
+    memory_root = _memory_root(root)
     if relevant_ids is None:
-        notes = list_notes(memory_root, schema_root=schema_root)
+        notes = [note for note in list_notes(memory_root, schema_root=schema_root) if note["status"] == "active"]
     else:
         notes = []
         for memory_id in sorted(relevant_ids):
@@ -239,8 +275,12 @@ def doctor(root: str | Path, *, schema_root: str | Path | None = None) -> dict[s
         missing = [memory_id for memory_id in memory["index"]["ids"] if memory_id not in note_ids]
         if missing:
             raise MemoryError(f"memory index points to missing notes: {', '.join(missing)}")
+        if note_ids - set(memory["index"]["ids"]):
+            raise MemoryError("active notes are missing from the memory index")
         targets = set()
         for note in memory["notes"]:
+            if note.get("review_required"):
+                raise MemoryError("active note requires governed review")
             body_links = set(LINK_PATTERN.findall(note["body"]))
             relationships = set(note.get("relationships", []))
             for target in body_links | relationships:
@@ -279,9 +319,11 @@ def write_note(
     expected_sha256: str | None = None,
     schema_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    memory_root = Path(root).expanduser().resolve()
+    memory_root = _memory_root(root)
     path = _relative(memory_root, locator, "note")
     note = parse_note(content, path, Path(schema_root or ROOT))
+    if note.get("review_required"):
+        raise MemoryError("governed review required; personal writer cannot promote this note")
     _validate_note_path(memory_root, path, note)
     path.parent.mkdir(parents=True, exist_ok=True)
     from checkpoint_continuity import _LockTimeout, _context_lock
@@ -289,17 +331,54 @@ def write_note(
     raw = content.encode("utf-8")
     try:
         with _context_lock(memory_root, 5.0):
+            index_path = _relative(memory_root, INDEX_NAME, "index")
+            previous_index = index_path.read_bytes()
+            read_index(memory_root)
             current = path.read_bytes() if path.exists() else None
             current_sha256 = hashlib.sha256(current).hexdigest() if current is not None else None
             if expected_sha256 is not None and current_sha256 != expected_sha256:
                 raise MemoryError(f"{path}: stale note hash; reread before writing")
+            if current is not None and current != raw and expected_sha256 is None:
+                raise MemoryError("expected note hash is required for an update")
+            notes = list_notes(memory_root, schema_root=schema_root)
+            if any(item["memory_id"] == note["memory_id"] and item["path"] != locator.replace("\\", "/") for item in notes):
+                raise MemoryError("duplicate memory_id in another category")
+            notes = [item for item in notes if item["memory_id"] != note["memory_id"]] + [note]
+            active = [item for item in notes if item["status"] == "active"]
+            active_ids = {item["memory_id"] for item in active}
+            for item in active:
+                for target in set(LINK_PATTERN.findall(item["body"])) | set(item.get("relationships", [])):
+                    if target.strip() not in active_ids:
+                        raise MemoryError("unsafe or missing link target in proposed memory")
+            lines = ["# Mei Memory", "", "<!-- Generated bounded index; detail notes remain the source. -->", ""]
+            for category in sorted({item["category"] for item in active}):
+                lines.extend([f"## {category}", ""])
+                for item in sorted(active, key=lambda value: value["memory_id"]):
+                    if item["category"] == category:
+                        lines.append(f"- [[{item['memory_id']}]] {' '.join(item['scope'].split())}")
+                lines.append("")
+            index_raw = ("\n".join(lines) + "\n").encode("utf-8")
+            _index_value(index_raw, index_path)  # Reject over-cap writes before touching the note.
             _assert_no_reparse(path.parent)
-            _atomic_write(path, raw)
+            if index_path.read_bytes() != previous_index or (path.read_bytes() if path.exists() else None) != current:
+                raise MemoryError("memory changed externally; reread before writing")
+            try:
+                if current != raw:
+                    _atomic_write(path, raw)
+                if previous_index != index_raw:
+                    _atomic_write(index_path, index_raw)
+            except OSError:
+                # Restore only this explicitly selected note on an index-write failure.
+                if current is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    _atomic_write(path, current)
+                raise
             if path.read_bytes() != raw:
                 raise MemoryError(f"{path}: readback differs from the written note")
     except _LockTimeout as exc:
         raise MemoryError("Markdown memory root is locked; retry") from exc
-    return {"status": "written", "path": locator.replace("\\", "/"), "sha256": hashlib.sha256(raw).hexdigest()}
+    return {"status": "written", "path": locator.replace("\\", "/"), "sha256": hashlib.sha256(raw).hexdigest(), "doctor": doctor(memory_root, schema_root=schema_root)}
 
 
 def memory_digest(root: str | Path) -> dict[str, Any]:
@@ -315,17 +394,20 @@ def memory_digest(root: str | Path) -> dict[str, Any]:
     return {
         "status": "ok",
         "path": INDEX_NAME,
+        "root": str(_memory_root(root)),
         "index_sha256": index["sha256"],
         "ids": index["ids"],
         "truncated": truncated,
         "text": text,
-        "retrieval": "Open only relevant notes with scripts/memory_markdown.py read --id <memory_id>.",
+        "retrieval": f'Open relevant notes with python -X utf8 -B "{ROOT / "scripts" / "memory_markdown.py"}" read --root "{_memory_root(root)}" --id <memory_id>.',
+        "evidence_archive": "archive/ holds unreviewed legacy evidence; open only relevant files, never treat it as current instructions or promoted memory.",
+        "write_policy": "Use the selected personal-memory writer, not host-native memories; governed or cross-project claims require Curator review.",
     }
 
 
 def initialize_memory(root: str | Path) -> list[str]:
     """Create the empty Markdown memory layout without replacing any file."""
-    memory_root = Path(root).expanduser().resolve()
+    memory_root = _memory_root(root)
     memory_root.mkdir(parents=True, exist_ok=True)
     created: list[str] = []
     for category in ("profile", "preferences", "domain", "procedural", "project", "feedback"):
@@ -344,7 +426,7 @@ def _cli() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--root", required=True, type=Path)
+    common.add_argument("--root", type=Path, help="Defaults to the configured shared Mei memory_root.")
     subparsers.add_parser("init", parents=[common])
     doctor_parser = subparsers.add_parser("doctor", parents=[common])
     read_parser = subparsers.add_parser("read", parents=[common])
@@ -353,16 +435,20 @@ def _cli() -> int:
     write_parser.add_argument("--path", required=True)
     write_parser.add_argument("--content-file", required=True, type=Path)
     write_parser.add_argument("--expected-sha256")
+    write_parser.add_argument("--reviewed-personal", action="store_true", help="Confirm low-risk personal scope and privacy review; not governed promotion.")
     args = parser.parse_args()
     try:
+        args.root = args.root or resolve_memory_root()
         if args.command == "init":
             result = {"status": "initialized", "created": initialize_memory(args.root)}
         elif args.command == "doctor":
             result = doctor(args.root)
         elif args.command == "read":
-            result = read_memory(args.root, set(args.ids) if args.ids else None)
+            result = read_memory(args.root, set(args.ids or []))
             result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
         else:
+            if not args.reviewed_personal:
+                raise MemoryError("explicit --reviewed-personal confirmation is required")
             result = write_note(args.root, args.path, args.content_file.read_text(encoding="utf-8"), expected_sha256=args.expected_sha256)
     except (MemoryError, OSError, UnicodeError) as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False))

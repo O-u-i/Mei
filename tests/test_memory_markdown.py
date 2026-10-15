@@ -6,6 +6,7 @@ import hashlib
 import sys
 import unittest
 import uuid
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,70 @@ def note(memory_id: str, category: str, body: str, *, relationships: list[str] |
 
 
 class MarkdownMemoryTests(unittest.TestCase):
+    def test_write_is_discoverable_and_invalid_graph_preserves_both_files(self):
+        root = fixture_root()
+        initialize_memory(root)
+        result = write_note(root, "project/small-note.md", note("small-note", "project", "Safe."))
+        self.assertEqual(result["doctor"]["status"], "ok")
+        self.assertEqual(read_memory(root)["index"]["ids"], ["small-note"])
+        before = (root / "MEMORY.md").read_bytes()
+        with self.assertRaisesRegex(MemoryError, "link target"):
+            write_note(root, "project/broken-note.md", note("broken-note", "project", "[[missing-note]]"))
+        self.assertFalse((root / "project/broken-note.md").exists())
+        self.assertEqual((root / "MEMORY.md").read_bytes(), before)
+
+    def test_over_cap_and_duplicate_ids_do_not_write_a_note(self):
+        root = fixture_root()
+        initialize_memory(root)
+        write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
+        with self.assertRaisesRegex(MemoryError, "duplicate"):
+            write_note(root, "domain/sample-note.md", note("sample-note", "domain", "Duplicate."))
+        original = (root / "project/sample-note.md").read_bytes()
+        with patch("memory_markdown.MAX_INDEX_BYTES", 10):
+            with self.assertRaisesRegex(MemoryError, "hard cap"):
+                write_note(root, "project/other-note.md", note("other-note", "project", "Safe."))
+        self.assertFalse((root / "project/other-note.md").exists())
+        self.assertEqual((root / "project/sample-note.md").read_bytes(), original)
+
+    def test_archive_leaves_evidence_but_removes_active_recall(self):
+        root = fixture_root()
+        initialize_memory(root)
+        first = write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
+        retired = note("sample-note", "project", "Retired.").replace("status: active", "status: archived")
+        write_note(root, "project/sample-note.md", retired, expected_sha256=first["sha256"])
+        self.assertEqual(read_memory(root)["notes"], [])
+        self.assertEqual(read_memory(root)["index"]["ids"], [])
+        self.assertTrue((root / "project/sample-note.md").is_file())
+
+    def test_index_failure_restores_the_selected_note(self):
+        import memory_markdown
+
+        root = fixture_root()
+        initialize_memory(root)
+        original = memory_markdown._atomic_write
+        def fail_index(path, raw):
+            if path.name == "MEMORY.md":
+                raise OSError("synthetic index failure")
+            original(path, raw)
+        with patch("memory_markdown._atomic_write", side_effect=fail_index):
+            with self.assertRaises(OSError):
+                write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
+        self.assertFalse((root / "project/sample-note.md").exists())
+        self.assertEqual(doctor(root)["status"], "ok")
+
+    def test_configured_root_is_shared_and_governed_review_is_not_a_personal_write(self):
+        from memory_markdown import resolve_memory_root
+
+        mei = fixture_root()
+        memory = mei / "memory/markdown/personal"
+        (mei / "local").mkdir()
+        (mei / "local/paths.toml").write_text(f"[paths]\nmemory_root = '{memory}'\n", encoding="utf-8")
+        self.assertEqual(resolve_memory_root(mei), memory.resolve())
+        initialize_memory(memory)
+        content = note("review-note", "project", "Needs a Curator.").replace("status: active", "status: active\nreview_required: true")
+        with self.assertRaisesRegex(MemoryError, "governed review"):
+            write_note(memory, "project/review-note.md", content)
+
     def test_initialize_read_and_doctor(self):
         root = fixture_root()
         initialize_memory(root)

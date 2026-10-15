@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 import uuid
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +90,58 @@ class ObsidianTests(unittest.TestCase):
         self.assertEqual(result["status"], "invalid")
         self.assertTrue(any("secret" in error for error in result["errors"]))
         self.assertFalse((self.memory / "project" / "capture-note.md").exists())
+
+    def test_external_change_between_plan_and_write_is_preserved(self):
+        import sync_obsidian as bridge
+
+        sync_obsidian(self.vault, 1, memory_root=self.memory)
+        page = self.vault / "Mei Memory/views/mei-project.md"
+        original_plan = bridge._plan
+        def change_after_plan(*args):
+            plan = original_plan(*args)
+            page.write_text("External sync edit.", encoding="utf-8")
+            return plan
+        with patch("sync_obsidian._plan", side_effect=change_after_plan):
+            result = sync_obsidian(self.vault, 2, memory_root=self.memory)
+        self.assertEqual(result["status"], "conflict")
+        self.assertEqual(page.read_text(encoding="utf-8"), "External sync edit.")
+
+    def test_source_change_between_plan_and_write_is_rejected(self):
+        import sync_obsidian as bridge
+
+        original_plan = bridge._plan
+        def change_after_plan(*args):
+            plan = original_plan(*args)
+            path = self.memory / "project/mei-project.md"
+            path.write_text(path.read_text(encoding="utf-8") + "\nChanged externally.\n", encoding="utf-8")
+            return plan
+        with patch("sync_obsidian._plan", side_effect=change_after_plan):
+            result = sync_obsidian(self.vault, 2, memory_root=self.memory)
+        self.assertEqual(result["status"], "stale_source")
+        self.assertFalse((self.vault / "Mei Memory/views/mei-project.md").exists())
+
+    def test_reviewed_capture_and_encoded_uri_are_not_governed_promotion(self):
+        from urllib.parse import parse_qs, urlsplit
+        from sync_obsidian import import_inbox, note_uri
+
+        sync_obsidian(self.vault, 1, memory_root=self.memory)
+        inbox = self.vault / "Mei Memory/inbox/capture.md"
+        inbox.write_text(note("capture-note", "Personal capture with [[mei-project]]."), encoding="utf-8")
+        original = inbox.read_bytes()
+        with self.assertRaisesRegex(MemoryError, "review"):
+            import_inbox(self.vault, "capture.md", memory_root=self.memory)
+        result = import_inbox(self.vault, "capture.md", memory_root=self.memory, reviewed_personal=True)
+        self.assertEqual(result["doctor"]["status"], "ok")
+        self.assertEqual(inbox.read_bytes(), original)
+        sync_obsidian(self.vault, 2, memory_root=self.memory)
+        uri = note_uri(self.vault, "views/capture-note.md")
+        self.assertEqual(parse_qs(urlsplit(uri).query)["file"], ["Mei Memory/views/capture-note.md"])
+        with self.assertRaises(MemoryError):
+            note_uri(self.vault, "../outside.md")
+        inbox.write_text(note("governed-note", "Review.").replace("status: active", "status: active\nreview_required: true"), encoding="utf-8")
+        report = import_inbox(self.vault, "capture.md", memory_root=self.memory, reviewed_personal=True)
+        self.assertEqual(report["status"], "review_required")
+        self.assertFalse((self.memory / "project/governed-note.md").exists())
 
 
 if __name__ == "__main__":

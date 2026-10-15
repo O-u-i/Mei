@@ -9,6 +9,8 @@ import os
 import subprocess
 import unittest
 import uuid
+from unittest.mock import patch
+from types import SimpleNamespace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,7 @@ class TestHostEvents(unittest.TestCase):
         if selected_home:
             command.extend(["--codex-home", str(selected_home)])
         env = os.environ.copy()
+        env["CODEX_PERMISSION_PROFILE"] = "mei-maintainer"
         if observed_home:
             env["CODEX_HOME"] = str(observed_home)
         return subprocess.run(
@@ -236,7 +239,7 @@ class TestSharedHomes(unittest.TestCase):
         envelope.update(metadata)
         command = [sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts/continuity_adapters.py"),
                    "--repo-root", str(fixture.repo), "--mei-root", str(fixture.mei), *extra]
-        env = dict(os.environ, CODEX_HOME=str(home))
+        env = dict(os.environ, CODEX_HOME=str(home), CODEX_PERMISSION_PROFILE="mei-maintainer")
         child = subprocess.run(command, input=json.dumps(envelope), capture_output=True, text=True,
                                encoding="utf-8", timeout=20, env=env)
         self.assertEqual(child.returncode, 0, child.stderr)
@@ -286,3 +289,58 @@ class TestSharedHomes(unittest.TestCase):
         payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
         self.assertNotIn("memory", payload)
         self.assertEqual(payload["context_id"], "shared")
+
+    def test_broken_index_fails_open_and_does_not_hide_shared_memory(self):
+        fixture = self.make_fixture()
+        (fixture.mei / "registry/continuity.yaml").write_text("entries: wrong\n", encoding="utf-8")
+        wire = self.run_hook(fixture, "SessionStart", home=fixture.root / "gui-home")
+        self.assertTrue(wire["continue"])
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(payload["status"], "context_invalid")
+        self.assertEqual(payload["memory"]["status"], "ok")
+
+    def test_configured_memory_root_is_used_instead_of_hardcoded_default(self):
+        fixture = self.make_fixture()
+        personal = fixture.mei / "memory/markdown/personal"
+        personal.mkdir()
+        (personal / "MEMORY.md").write_text("# Configured root marker\n", encoding="utf-8")
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local/paths.toml").write_text(f"[paths]\nmemory_root = '{personal}'\n", encoding="utf-8")
+        wire = self.run_hook(fixture, "SessionStart", home=fixture.root / "gui-home")
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(payload["memory"]["root"], str(personal.resolve()))
+        self.assertIn("Configured root marker", payload["memory"]["text"])
+
+    def test_native_lifecycle_uses_selected_sandbox_and_forwards_metadata_only(self):
+        from continuity_adapters import _sandboxed_lifecycle
+
+        fixture = self.make_fixture()
+        native = fixture.root / "native.exe"
+        native.write_bytes(b"synthetic path only; subprocess is mocked")
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local/paths.toml").write_text(
+            f"[paths]\ncodex_cli = '{native}'\n[host]\ncontinuity_lifecycle_profile = 'mei-continuity-writer'\n", encoding="utf-8")
+        args = SimpleNamespace(mei_root=fixture.mei, repo_root=fixture.repo)
+        envelope = {"cwd": str(fixture.repo), "session_id": "synthetic-session", "hook_event_name": "UserPromptSubmit",
+                    "prompt": "Never forward raw prompt text.", "transcript_path": "never-read.jsonl"}
+        with patch("continuity_adapters.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout='{"continue":true}')) as run:
+            result = _sandboxed_lifecycle(args, envelope, "gui", fixture.root / "gui-home", fixture.context_id)
+        self.assertTrue(result["continue"])
+        command = run.call_args.args[0]
+        self.assertEqual(command[1:4], ["sandbox", "-P", "mei-continuity-writer"])
+        self.assertIn("--lifecycle-child", command)
+        metadata = json.loads(run.call_args.kwargs["input"])
+        self.assertNotIn("prompt", metadata)
+        self.assertNotIn("transcript_path", metadata)
+
+    def test_unavailable_projection_sandbox_preserves_post_compact_continuity(self):
+        fixture = self.make_fixture()
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local/paths.toml").write_text(
+            "[host]\nobsidian_projection_profile = 'mei-obsidian-projection'\n", encoding="utf-8")
+        wire = self.run_hook(fixture, "PostCompact", home=fixture.root / "gui-home", trigger="auto")
+        self.assertTrue(wire["continue"])
+        payload = json.loads(wire["systemMessage"].split(": ", 1)[1])
+        self.assertEqual(payload["context_id"], "shared")
+        self.assertEqual(payload["memory"]["status"], "ok")
+        self.assertEqual(payload["obsidian"]["status"], "obsidian_projection_stale")

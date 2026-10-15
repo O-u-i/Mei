@@ -1,6 +1,22 @@
 # Permissions policy
 
-The Codex `mei-project` profile is the ordinary project mode: the project workspace remains writable, Mei governed records and policies are read-only, and the only current Mei write exception is creating one eligible redacted trajectory in `trajectories/inbox`. A future, separately selected personal-memory writer may write one validated Markdown note under the configured `memory_root` after its Phase 6 interface and profile are implemented; that writer cannot touch governed JSON, registries, continuity, credentials, or host runtime state. Existing inbox items, `memory/canonical`, `memory/candidates`, registries, policies, schemas, continuity, and personal skills remain outside ordinary project write scope. A normal project must never switch to `mei-maintainer` merely to bypass a denied write.
+The Codex `mei-project` profile is the ordinary project mode: the project workspace remains writable, Mei governed records and policies are read-only, and the only Mei write exception is creating one eligible redacted trajectory in `trajectories/inbox`. A separately selected `mei-personal-memory` profile may write a reviewed low-risk Markdown note and its bounded derived index under the configured `memory_root`; it cannot write governed JSON, registries, continuity, credentials, or host runtime state. The CLI additionally requires `--reviewed-personal`; updates require the previous note hash. Scope/risk review is human or agent judgment, not a claim that secret-pattern matching proves privacy. Existing inbox items, `memory/canonical`, `memory/candidates`, registries, policies, schemas, continuity, and personal skills remain outside ordinary project write scope. A normal project must never switch to `mei-maintainer` merely to bypass a denied write.
+
+A separately selected `mei-continuity-writer` profile grants only the explicitly
+configured context directory, not the whole continuity tree or registry. Changing
+that selection requires a reviewed profile update. Explicit creation/index rebase
+is a maintainer operation, with a retained backup of the old locator and technical
+records. Hook event writes require a selected writer profile as well as native
+filesystem authorization. User-level hooks are discovered per host and trusted
+by the user; never synthesize a trust hash or use a trust-bypass flag as acceptance.
+
+The optional `mei-obsidian-projection` profile starts from `:read-only`, grants
+only the configured generated namespace, and explicitly makes its human inbox
+read-only. Obsidian settings remain outside the grant. When the user selects
+automatic lifecycle/projection assistance, hooks invoke these named native
+sandboxes; an environment-variable profile name is not proof of authorization.
+Personal semantic writes and governed promotion are never automatic hook work.
+No helper may silently choose a broader profile after a denied write.
 
 The explicitly selected Codex `mei-maintainer` profile is for a scoped Mei maintenance task. It may write the Mei checkout and the user-selected installed skill directory only within that task, while Curator review, provenance, conflict checks, validation, and explicit promotion decisions still apply. It does not authorize other projects, credentials, system permissions, or automatic promotion.
 

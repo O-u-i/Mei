@@ -11,13 +11,14 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from _common import ROOT, SECRET_PATTERNS
-from memory_markdown import _assert_no_reparse
+from memory_markdown import _assert_no_reparse, _relative
 
 MANIFEST_SCHEMA = "v0.1.0"
 MAX_SOURCE_BYTES = 2_000_000
@@ -60,12 +61,14 @@ def _privacy(raw: bytes) -> str:
 
 def inventory(source: str | Path) -> list[dict[str, Any]]:
     """Classify every file under one memories root; content is hashed, never returned."""
-    source = Path(source).resolve()
+    source = Path(source)
     _assert_no_reparse(source)
+    source = source.resolve()
     if not source.is_dir():
         raise FileNotFoundError(f"memory source is missing: {source}")
     entries = []
     for path in sorted(p for p in source.rglob("*") if p.is_file()):
+        _assert_no_reparse(path)
         relative = path.relative_to(source).as_posix()
         kind = classify(relative)
         entry: dict[str, Any] = {"path": relative, "class": kind, "bytes": path.stat().st_size}
@@ -103,28 +106,40 @@ def _target_root(mei_root: Path, host: str) -> Path:
     return mei_root / "memory" / "markdown" / "archive" / f"codex-{host}"
 
 
-def migrate(sources: dict[str, Path], mei_root: Path = ROOT, manifest_path: Path | None = None) -> dict[str, Any]:
+def migrate(sources: dict[str, Path], mei_root: Path = ROOT, manifest_path: Path | None = None, *, snapshot_id: str | None = None) -> dict[str, Any]:
     """Copy clean eligible files; never overwrite a differing target or touch a source."""
     mei_root = Path(mei_root).resolve()
     manifest_path = Path(manifest_path or mei_root / "local" / "codex-memory-migration.json")
+    if snapshot_id is not None:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", snapshot_id):
+            raise ValueError("snapshot_id must be a bounded lowercase slug")
+        if manifest_path.exists():
+            raise FileExistsError("snapshot manifest already exists; choose a new snapshot")
+    _assert_no_reparse(manifest_path)
+    if not manifest_path.resolve().is_relative_to(mei_root / "local"):
+        raise ValueError("migration manifest must remain under Mei local/")
     hosts: dict[str, Any] = {}
     totals = {"copied": 0, "unchanged": 0, "blocked": 0, "conflict": 0, "retained": 0}
     for host, source in sorted(sources.items()):
-        source = Path(source).resolve()
+        source = Path(source)
+        _assert_no_reparse(source)
+        source = source.resolve()
         target_root = _target_root(mei_root, host)
+        if snapshot_id:
+            target_root /= snapshot_id
         _assert_no_reparse(target_root)
         entries = inventory(source)
         for entry in entries:
             if entry["action"] != "copy":
                 totals["blocked" if entry["action"] == "blocked" else "retained"] += 1
                 continue
-            raw = (source / entry["path"]).read_bytes()
+            raw = _relative(source, entry["path"], "migration source").read_bytes()
             if _sha256(raw) != entry["source_sha256"]:
                 entry["action"] = "conflict"
                 entry["reason"] = "source changed during migration"
                 totals["conflict"] += 1
                 continue
-            target = target_root / entry["path"]
+            target = _relative(target_root, entry["path"], "migration target")
             entry["target"] = target.relative_to(mei_root).as_posix()
             if target.exists():
                 current = _sha256(target.read_bytes())
@@ -143,6 +158,7 @@ def migrate(sources: dict[str, Path], mei_root: Path = ROOT, manifest_path: Path
         "schema_version": MANIFEST_SCHEMA,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "hosts": hosts,
+        "snapshot_id": snapshot_id,
         "totals": totals,
         "rollback": "Set [host] memory_injection = false in local/paths.toml; sources and CODEX_HOME are untouched.",
     }
@@ -158,12 +174,16 @@ def verify(manifest_path: Path, mei_root: Path = ROOT) -> dict[str, Any]:
     checked = 0
     for host, record in manifest["hosts"].items():
         source_root = Path(record["source"])
+        expected_target_root = _target_root(mei_root, host)
+        _assert_no_reparse(source_root)
         for entry in record["entries"]:
             if entry["action"] not in {"copied", "unchanged"}:
                 continue
             checked += 1
-            source = source_root / entry["path"]
-            target = mei_root / entry["target"]
+            source = _relative(source_root, entry["path"], "manifest source")
+            target = _relative(mei_root, entry["target"], "manifest target")
+            if not target.resolve().is_relative_to(expected_target_root.resolve()):
+                raise ValueError("manifest target is outside the host archive")
             if not target.is_file() or _sha256(target.read_bytes()) != entry["target_sha256"]:
                 errors.append(f"{host}:{entry['path']}: target missing or changed")
             if not source.is_file():
@@ -179,7 +199,10 @@ def verify(manifest_path: Path, mei_root: Path = ROOT) -> dict[str, Any]:
         if entry["class"] in {"runtime_excluded", "vcs_excluded", "executable_skill", "extension"} and "target" in entry
     ]
     errors.extend(f"{item}: excluded class was copied" for item in excluded)
-    return {"status": "invalid" if errors else "ok", "checked": checked, "errors": errors[:50]}
+    blocked = [{"host": host, "path": entry["path"], "privacy": entry.get("privacy")} for host, record in manifest["hosts"].items()
+               for entry in record["entries"] if entry["action"] in {"blocked", "conflict"}]
+    return {"status": "invalid" if errors else "ok", "checked": checked, "errors": errors[:50],
+            "unresolved": blocked, "acceptance": "integrity_only_not_host_switch_or_privacy_approval"}
 
 
 def _sources_from_config(mei_root: Path) -> dict[str, Path]:
@@ -195,6 +218,7 @@ def _cli() -> int:
     parser.add_argument("command", choices=["inventory", "migrate", "verify"])
     parser.add_argument("--mei-root", type=Path, default=ROOT)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--snapshot-id", help="Retain a new snapshot without replacing an earlier manifest.")
     args = parser.parse_args()
     mei_root = args.mei_root.resolve()
     manifest = args.manifest or mei_root / "local" / "codex-memory-migration.json"
@@ -211,7 +235,7 @@ def _cli() -> int:
                         summary.setdefault("blocked", {"files": 0, "bytes": 0})["files"] += 1
                 result[host] = summary
         elif args.command == "migrate":
-            result = migrate(_sources_from_config(mei_root), mei_root, manifest)
+            result = migrate(_sources_from_config(mei_root), mei_root, manifest, snapshot_id=args.snapshot_id)
         else:
             result = verify(manifest, mei_root)
     except (OSError, ValueError, KeyError) as exc:

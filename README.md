@@ -207,6 +207,28 @@ python scripts/memory_markdown.py init --root memory/markdown
 python scripts/memory_markdown.py doctor --root memory/markdown
 ```
 
+Readers may omit `--root` to use the configured shared `memory_root`. `read`
+loads only the index unless explicit `--id` selectors are supplied. Personal
+write operations require a separately selected narrow filesystem profile and
+explicit scope/privacy review:
+
+```bash
+python scripts/memory_markdown.py write --path preferences/example-note.md --content-file <reviewed-note.md> --reviewed-personal
+# For updates, also supply --expected-sha256 <previous-note-hash>.
+```
+
+The writer validates the prospective IDs/links and bounded index before
+replacement. It regenerates the compact index from active note scopes; archived
+notes remain on disk but leave active retrieval. A `review_required: true`
+capture cannot be imported by the personal writer. The filesystem profile is a
+separate control: the CLI confirmation is not an ACL or governed promotion.
+
+Creating a continuity context is an explicit maintainer operation, never a hook
+side effect. `scripts/create_continuity.py` requires a matching active project,
+the current index hash and `--rebase-index` approval when entries already exist.
+It retains recovery bytes, locks existing contexts, and rebases only technical
+index fields; existing project bytes and semantic generations stay unchanged.
+
 The Obsidian adapter uses the configured local vault and writes only the
 `Mei Memory` namespace. The initializer creates the local vault; synchronization
 does not change `.obsidian`:
@@ -216,6 +238,30 @@ python scripts/sync_obsidian.py check --memory-root memory/markdown
 python scripts/sync_obsidian.py sync --memory-root memory/markdown --source-generation manual
 python scripts/check_obsidian.py --memory-root memory/markdown
 ```
+
+`sync_obsidian.py uri --note views/<memory-id>.md` returns a validated,
+encoded open-only URI; it does not launch Obsidian or grant write authority.
+`sync_obsidian.py import-inbox --note <filename.md> --reviewed-personal` imports
+one low-risk reviewed capture through the same writer, retaining source bytes
+and their locator/hash. Governed captures are referred to the existing
+one-task completion/Curator bridge, not automatically promoted.
+
+Install default-on hooks once per host home, without a pilot context, thread or
+home restriction; use the hook envelope's workspace and unique active context.
+Do not install duplicate project handlers. Review/trust each host's exact
+definitions in its native interface. Only after backup, native trust and actual
+profile-boundary tests should native host memory reading/generation be disabled.
+Test the installed command string through the actual host shell, not just a
+Python argv list or `cmd.exe`: PowerShell needs `&` before a quoted executable.
+Keep host homes, authentication and runtime stores in place. The personal and
+context writer profiles must start from `:read-only` and grant only their named
+memory/context directory; inheriting workspace writes is not narrow isolation.
+
+Use `mei-project` for ordinary external project work, not with Mei as the
+writable workspace itself: equal-path write grants outrank read grants. Mei's
+own project default remains `:read-only`, with maintenance explicitly selected.
+Configuration, command-level probes, real GUI/TUI events and human Obsidian
+Backlinks/Graph acceptance remain separate verification claims.
 
 The default configuration needs no path override. To use a different vault,
 set `MEI_OBSIDIAN_VAULT` before `python scripts/init_local.py`, or edit

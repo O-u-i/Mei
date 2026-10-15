@@ -11,6 +11,7 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import tomllib
 import yaml
@@ -28,6 +29,9 @@ from memory_markdown import (
     doctor as markdown_doctor,
     parse_note,
     read_memory,
+    resolve_memory_root,
+    render_note,
+    write_note,
 )
 
 DEFAULT_NAMESPACE = "Mei Memory"
@@ -99,14 +103,19 @@ def resolve_vault(
     vault = Path(vault_root).expanduser()
     if not vault.is_absolute():
         raise MemoryError("obsidian_vault must be an absolute path")
+    _assert_no_reparse(vault)
     vault = vault.resolve()
     if not vault.is_dir():
         raise MemoryError(f"configured Obsidian vault is missing: {vault}")
     _assert_no_reparse(vault)
+    if any((parent / ".obsidian").is_dir() for parent in vault.parents):
+        raise MemoryError("configured vault is nested inside another Obsidian vault")
     namespace = namespace or config.get("obsidian_memory_dir") or DEFAULT_NAMESPACE
     parts = _namespace_parts(namespace)
     namespace_path = vault.joinpath(*parts)
     _assert_no_reparse(namespace_path)
+    if (namespace_path / ".obsidian").exists():
+        raise MemoryError("Mei namespace must not contain a nested vault")
     if namespace_path.resolve(strict=False) == (vault / ".obsidian").resolve(strict=False):
         raise MemoryError("Mei namespace cannot be .obsidian")
     return vault, namespace_path, "/".join(parts)
@@ -209,13 +218,15 @@ def _plan(
     old_notes = old_manifest.get("notes", {}) if old_manifest else {}
     changes = {"added": [], "updated": [], "unchanged": [], "drifted": [], "skipped": []}
     page_paths: dict[str, Path] = {}
+    observed: dict[Path, str | None] = {}
     for memory_id, content in rendered.items():
         page = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/views/{memory_id}.md", "projection")
         page_paths[memory_id] = page
         expected_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         previous = old_notes.get(memory_id)
+        observed[page] = hashlib.sha256(page.read_bytes()).hexdigest() if page.exists() else None
         if not page.exists():
-            changes["added"].append(memory_id)
+            changes["drifted" if previous else "added"].append(memory_id)
         else:
             current_hash = hashlib.sha256(page.read_bytes()).hexdigest()
             if current_hash == expected_hash:
@@ -229,6 +240,7 @@ def _plan(
             changes["skipped"].append(memory_id)
     desired_index = _projection_index(notes, source_generation, source_digest)
     index_path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/index.md", "projection index")
+    observed[index_path] = hashlib.sha256(index_path.read_bytes()).hexdigest() if index_path.exists() else None
     desired_index_hash = hashlib.sha256(desired_index.encode("utf-8")).hexdigest()
     index_change = "added"
     if index_path.exists():
@@ -267,6 +279,7 @@ def _plan(
         "manifest_hash": manifest_hash,
         "changes": changes,
         "index_change": index_change,
+        "observed": observed,
     }, old_manifest
 
 
@@ -293,13 +306,16 @@ def sync_obsidian(
     memory_root: str | Path | None = None,
     namespace: str | None = None,
     lock_timeout: float = 5.0,
+    config_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if mode not in {"sync", "check"}:
         raise MemoryError("mode must be sync or check")
     if isinstance(source_generation, bool) or not isinstance(source_generation, (str, int)) or not str(source_generation):
         raise MemoryError("source_generation must be a non-empty string or integer")
-    memory_root = Path(memory_root or ROOT / "memory" / "markdown").expanduser().resolve()
-    vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace)
+    memory_root = Path(memory_root or resolve_memory_root()).expanduser()
+    _assert_no_reparse(memory_root)
+    memory_root = memory_root.resolve()
+    vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace, config_path=config_path)
     if not namespace_path.exists() and mode == "check":
         return {"status": "missing", "namespace": namespace_name, "required_action": "sync"}
     def make_plan() -> dict[str, Any]:
@@ -312,7 +328,7 @@ def sync_obsidian(
         result["namespace"] = namespace_name
         return result
     try:
-        with _context_lock(vault, lock_timeout):
+        with _context_lock(memory_root, lock_timeout), _context_lock(vault, lock_timeout):
             namespace_path.mkdir(parents=True, exist_ok=True)
             (namespace_path / "views").mkdir(parents=True, exist_ok=True)
             (namespace_path / "inbox").mkdir(parents=True, exist_ok=True)
@@ -322,12 +338,27 @@ def sync_obsidian(
                 result["namespace"] = namespace_name
                 result["required_action"] = "review_drift"
                 return result
+            def unchanged(path: Path, expected: str | None) -> bool:
+                _assert_no_reparse(path)
+                return (hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None) == expected
+            if _source_digest(read_memory(memory_root)["notes"]) != plan["desired_manifest"]["source_sha256"]:
+                return {"status": "stale_source", "required_action": "reread", "committed": False}
+            manifest_path = namespace_path / MANIFEST_NAME
+            if not unchanged(manifest_path, plan["manifest_hash"]) or any(not unchanged(path, digest) for path, digest in plan["observed"].items()):
+                return {"status": "conflict", "required_action": "review_external_change", "committed": False}
             for memory_id in plan["changes"]["added"] + plan["changes"]["updated"]:
+                if not unchanged(plan["page_paths"][memory_id], plan["observed"][plan["page_paths"][memory_id]]):
+                    return {"status": "conflict", "required_action": "review_external_change", "committed": False}
                 _atomic_write(plan["page_paths"][memory_id], plan["rendered"][memory_id].encode("utf-8"))
             if plan["index_change"] in {"added", "updated"}:
+                if not unchanged(plan["index_path"], plan["observed"][plan["index_path"]]):
+                    return {"status": "conflict", "required_action": "review_external_change", "committed": False}
                 _atomic_write(plan["index_path"], plan["desired_index"].encode("utf-8"))
             manifest_raw = json.dumps(plan["desired_manifest"], ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
-            manifest_path = namespace_path / MANIFEST_NAME
+            if _source_digest(read_memory(memory_root)["notes"]) != plan["desired_manifest"]["source_sha256"]:
+                return {"status": "stale_source", "required_action": "reread", "committed": False}
+            if not unchanged(manifest_path, plan["manifest_hash"]):
+                return {"status": "conflict", "required_action": "review_external_change", "committed": False}
             if not manifest_path.exists() or manifest_path.read_bytes() != manifest_raw:
                 _atomic_write(manifest_path, manifest_raw)
             result = _report(plan, status="synced", committed=True)
@@ -383,7 +414,9 @@ def check_vault(
                 errors.append(str(exc))
         inbox = namespace_path / "inbox"
         if inbox.is_dir():
+            _assert_no_reparse(inbox)
             for path in sorted(inbox.glob("*.md")):
+                _assert_no_reparse(path)
                 raw = path.read_bytes()
                 if len(raw) > MAX_VAULT_NOTE_BYTES:
                     errors.append(f"{path}: inbox note exceeds {MAX_VAULT_NOTE_BYTES} bytes")
@@ -406,24 +439,67 @@ def check_vault(
         return {"status": "invalid", "errors": [str(exc)]}
 
 
+def note_uri(vault_root: str | Path | None, locator: str, *, namespace: str | None = None) -> str:
+    """Build an open-only URI for one validated generated page; never launch it."""
+    vault, namespace_path, _ = resolve_vault(vault_root, namespace)
+    if not PATH_PATTERN.fullmatch(locator):
+        raise MemoryError("URI target must be a generated views/<memory_id>.md note")
+    path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/{locator}", "URI note")
+    manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
+    entry = (manifest or {}).get("notes", {}).get(path.stem)
+    if not entry or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry["rendered_sha256"]:
+        raise MemoryError("URI target is missing or drifted")
+    return "obsidian://open?" + urlencode({"vault": str(vault), "file": path.relative_to(vault).as_posix()})
+
+
+def import_inbox(vault_root: str | Path | None, filename: str, *, memory_root: str | Path | None = None,
+                 namespace: str | None = None, reviewed_personal: bool = False, expected_sha256: str | None = None) -> dict[str, Any]:
+    """Import one reviewed personal capture without modifying its source or governed records."""
+    if not reviewed_personal:
+        raise MemoryError("explicit personal scope and privacy review is required")
+    if not filename.endswith(".md") or "/" in filename or "\\" in filename:
+        raise MemoryError("inbox input must be one Markdown filename")
+    vault, namespace_path, _ = resolve_vault(vault_root, namespace)
+    path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/inbox/{filename}", "inbox capture")
+    raw = path.read_bytes()
+    note = parse_note(raw.decode("utf-8"), path)
+    if note.get("review_required"):
+        return {"status": "review_required", "required_action": "explicit_curator_task", "source_preserved": True,
+                "source": str(path), "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "trajectory_bridge": "Use complete_continuity.py for the one eligible completed task; include this source locator/hash in reviewed provenance."}
+    note["source"] = f"{path}; sha256={hashlib.sha256(raw).hexdigest()}; reviewed personal capture; {note['source']}"
+    result = write_note(memory_root or resolve_memory_root(), f"{note['category']}/{note['memory_id']}.md",
+                        render_note(note), expected_sha256=expected_sha256)
+    result["source_preserved"] = path.read_bytes() == raw
+    return result
+
+
 def _cli() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["sync", "check"])
+    parser.add_argument("command", choices=["sync", "check", "uri", "import-inbox"])
     parser.add_argument("--vault", type=Path)
     parser.add_argument("--namespace")
-    parser.add_argument("--memory-root", type=Path, default=ROOT / "memory" / "markdown")
+    parser.add_argument("--memory-root", type=Path)
+    parser.add_argument("--note", help="views/<memory_id>.md for uri; one filename for import-inbox")
+    parser.add_argument("--reviewed-personal", action="store_true")
+    parser.add_argument("--expected-sha256")
     parser.add_argument("--source-generation", default="manual")
     parser.add_argument("--lock-timeout", type=float, default=5.0)
     args = parser.parse_args()
     try:
         if args.command == "sync":
             result = sync_obsidian(args.vault, args.source_generation, memory_root=args.memory_root, namespace=args.namespace, lock_timeout=args.lock_timeout)
+        elif args.command == "check":
+            result = check_vault(args.vault, namespace=args.namespace, memory_root=args.memory_root or resolve_memory_root())
+        elif args.command == "uri":
+            result = {"status": "ok", "uri": note_uri(args.vault, args.note or "", namespace=args.namespace)}
         else:
-            result = check_vault(args.vault, namespace=args.namespace, memory_root=args.memory_root)
+            result = import_inbox(args.vault, args.note or "", memory_root=args.memory_root, namespace=args.namespace,
+                                  reviewed_personal=args.reviewed_personal, expected_sha256=args.expected_sha256)
     except (MemoryError, OSError, UnicodeError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get("status") in {"ok", "synced"} else 1
+    return 0 if result.get("status") in {"ok", "synced", "written"} else 1
 
 
 if __name__ == "__main__":
