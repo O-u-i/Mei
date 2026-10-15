@@ -217,3 +217,72 @@ class TestAdapters(unittest.TestCase):
             fixture = ContinuityFixture(temp)
             with self.assertRaisesRegex(ContinuityError, "host must be one of"):
                 read_context(fixture.repo, fixture.context_id, host="other", mei_root=fixture.mei)
+
+
+class TestSharedHomes(unittest.TestCase):
+    """GUI and both TUI homes read one Mei base; only the configured writer records events."""
+
+    def make_fixture(self):
+        root = ROOT / ".tmp" / "host-tests" / uuid.uuid4().hex
+        root.mkdir(parents=True)
+        fixture = ContinuityFixture(root)
+        memory = fixture.mei / "memory" / "markdown"
+        memory.mkdir(parents=True)
+        (memory / "MEMORY.md").write_text("# Mei Memory\n\nShared base memory marker.\n", encoding="utf-8")
+        return fixture
+
+    def run_hook(self, fixture, event, *, home, extra=(), **metadata):
+        envelope = dict(cwd=str(fixture.repo), session_id="any-thread", hook_event_name=event)
+        envelope.update(metadata)
+        command = [sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts/continuity_adapters.py"),
+                   "--repo-root", str(fixture.repo), "--mei-root", str(fixture.mei), *extra]
+        env = dict(os.environ, CODEX_HOME=str(home))
+        child = subprocess.run(command, input=json.dumps(envelope), capture_output=True, text=True,
+                               encoding="utf-8", timeout=20, env=env)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        return json.loads(child.stdout)
+
+    def test_every_home_reads_the_same_context_and_memory_without_a_context_flag(self):
+        fixture = self.make_fixture()
+        seen = []
+        for home in ("gui-home", "tui-gpt-home", "tui-claude-home"):
+            wire = self.run_hook(fixture, "SessionStart", home=fixture.root / home, source="startup")
+            payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+            self.assertEqual(payload["context_id"], "shared")
+            self.assertEqual(payload["memory"]["status"], "ok")
+            self.assertIn("Shared base memory marker.", payload["memory"]["text"])
+            seen.append((payload["project_sha256"], payload["memory"]["index_sha256"]))
+        self.assertEqual(len(set(seen)), 1)
+
+    def test_missing_context_is_reported_and_never_created(self):
+        fixture = self.make_fixture()
+        (fixture.mei / "registry" / "continuity.yaml").write_text(
+            "schema_version: v0.1.0\nversion: v1.1.0\nentries: []\n", encoding="utf-8")
+        wire = self.run_hook(fixture, "SessionStart", home=fixture.root / "gui-home")
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(payload["status"], "context_missing")
+        self.assertIn("Shared base memory marker.", payload["memory"]["text"])
+        self.assertFalse((fixture.mei / "memory" / "continuity" / fixture.repo_id / "new").exists())
+
+    def test_other_home_witness_cannot_write_but_still_gates_manual_compact(self):
+        from continuity_adapters import read_gui_context
+
+        fixture = self.make_fixture()
+        writer = ["--codex-home", str(fixture.root / "tui-home")]
+        self.run_hook(fixture, "UserPromptSubmit", home=fixture.root / "tui-home", extra=writer)
+        dirty = read_gui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        self.assertEqual(dirty["status"], "dirty")
+        gate = self.run_hook(fixture, "PreCompact", home=fixture.root / "gui-home", extra=writer, trigger="manual")
+        self.assertFalse(gate["continue"])
+        auto = self.run_hook(fixture, "PreCompact", home=fixture.root / "gui-home", extra=writer, trigger="auto")
+        self.assertTrue(auto["continue"])
+        self.assertEqual(read_gui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), dirty)
+
+    def test_injection_rollback_switch_removes_memory_but_keeps_continuity(self):
+        fixture = self.make_fixture()
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local" / "paths.toml").write_text("[host]\nmemory_injection = false\n", encoding="utf-8")
+        wire = self.run_hook(fixture, "SessionStart", home=fixture.root / "gui-home")
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        self.assertNotIn("memory", payload)
+        self.assertEqual(payload["context_id"], "shared")

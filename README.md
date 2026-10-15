@@ -1,24 +1,27 @@
-# Mei v1.4.0
+# Mei v1.5.0
 
 **Mei is a local-first system for carrying agent memory across projects.** Personal memory uses a bounded `MEMORY.md` index plus Markdown detail notes; reviewed JSON memory and Curator promotion remain available for governed claims. The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
 
-**Version:** [v1.4.0](VERSION) · **Status:** active
+**Version:** [v1.5.0](VERSION) · **Status:** active
 
 ## Current behavior and direction
 
 | Stage | Current behavior |
 | --- | --- |
-| Current read | The released reader selects continuity state and reviewed JSON memory by their existing indexes. The Markdown-first reader and note doctor are planned for Phase 6. |
+| Current read | The released reader selects continuity state and reviewed JSON memory by their existing indexes. The Phase 6 Markdown reader and note doctor are available locally. |
 | Current capture | A task may create one redacted JSON trajectory when a sensitive, cross-project, or ambiguous claim needs Curator review. Export is deliberate, not an automatic session hook. |
 | Current review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating or promoting a governed memory record. |
-| Direction | `memory/markdown/MEMORY.md` plus detail notes will become the personal-memory hot path; governed JSON and Curator review remain the audit path. |
+| Direction | `memory/markdown/MEMORY.md` plus detail notes are the personal-memory hot path; governed JSON and Curator review remain the audit path. |
 
 ### Continuity read and checkpoint
 
 The read-only continuity loader selects one repository/context pair. The
 IPS-0.4 target is for GUI and TUI startup to use the same Mei root by default
 while keeping `CODEX_HOME` for host authentication and runtime state. In the
-current v1.4.0 release, host lifecycle wiring remains an opt-in adapter seam;
+current v1.5.0 release, a trusted project hook can call the shared adapter
+from any `CODEX_HOME`; it selects the single open context when no
+`--context-id` is given, reports `context_missing` or `context_ambiguous`
+instead of creating or merging, and injects the bounded `MEMORY.md` digest;
 the loader
 reads the Git-ignored `registry/continuity.yaml` index and the selected
 `memory/continuity/<repo-id>/<context-id>/project.json` plus
@@ -51,8 +54,8 @@ python scripts/check_continuity.py --repo-root <repository-root> --context-id <i
 ```
 
 The reader derives the continuity root from the Mei checkout passed as
-`--mei-root` (the script defaults to its own checkout), so no nested vault is
-introduced.
+`--mei-root` (the script defaults to its own checkout), so the state stays
+within the selected Mei checkout.
 
 The narrow checkpoint command updates one existing indexed context. The caller
 loads the context, edits a reviewed project payload, then submits the snapshot's
@@ -143,8 +146,14 @@ The Curator handoff reports the source path/hash and outstanding privacy,
 provenance, duplicate, conflict, currentness and explicit-promotion gates. It
 does not invoke normalization or promotion. Follow the existing separate Curator
 workflow below. Real-context migration, host hooks/ACLs and human acceptance have
-not been exercised by the synthetic Phase 5 tests. Obsidian work is Phase 6 and
-is not implemented here. `VERSION` remains unchanged; this is not a release.
+not been exercised by the synthetic Phase 5 tests. The Phase 6 Markdown and
+Obsidian bridge refreshes the vault view after `PostCompact` and reports
+`obsidian_projection_stale` without blocking continuity. Phase 7 adds
+`scripts/migrate_codex_memory.py` (`inventory`, `migrate`, `verify`): it copies
+eligible host memory files byte-for-byte into `memory/markdown/archive/codex-<host>/`
+with a Git-ignored hash manifest, never copies auth, config, SQLite, sessions,
+skills, or `.git`, and never modifies the source. Set `[host] memory_injection = false`
+in `local/paths.toml` to roll back memory injection. No automatic promotion is installed.
 
 Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version. Existing same-major local registry versions remain readable across a Mei minor release and are not rewritten by validation; generated registries update when their owner explicitly rebuilds them.
 
@@ -189,9 +198,32 @@ python -m unittest discover -s tests -v
 python scripts/validate_repository.py
 ```
 
-`init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Markdown memory root, GUI/TUI Codex homes and legacy memory sources, personal skills directory, and inbox paths **for this computer**. Optional Obsidian keys point to the existing vault and a vault-relative Mei namespace. The generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
+`init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Markdown memory root, GUI/TUI Codex homes and legacy memory sources, personal skills directory, inbox, and the local Obsidian vault paths **for this computer**. By default the vault is `obsidian-vault/` inside this Mei checkout; `MEI_OBSIDIAN_VAULT` is an explicit override. The initializer creates the vault root and `.obsidian/` directory, while the generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
 
-To connect a project, configure that project's local agent instructions to locate **your own Mei checkout**, read `registry/memory.yaml` when reviewed JSON memory is relevant, and adopt the planned `memory/markdown/MEMORY.md` reader only after the Phase 6 interface exists. Give the project write access only to `trajectories/inbox/`; a future personal-memory profile will have a separate bounded Markdown write scope. Reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
+Initialize the local Markdown memory and inspect it with:
+
+```text
+python scripts/memory_markdown.py init --root memory/markdown
+python scripts/memory_markdown.py doctor --root memory/markdown
+```
+
+The Obsidian adapter uses the configured local vault and writes only the
+`Mei Memory` namespace. The initializer creates the local vault; synchronization
+does not change `.obsidian`:
+
+```text
+python scripts/sync_obsidian.py check --memory-root memory/markdown
+python scripts/sync_obsidian.py sync --memory-root memory/markdown --source-generation manual
+python scripts/check_obsidian.py --memory-root memory/markdown
+```
+
+The default configuration needs no path override. To use a different vault,
+set `MEI_OBSIDIAN_VAULT` before `python scripts/init_local.py`, or edit
+`obsidian_vault` and `obsidian_memory_dir` in the Git-ignored `local/paths.toml`.
+Projection drift is preserved for review and does not block continuity or
+compact.
+
+To connect a project, configure that project's local agent instructions to locate **your own Mei checkout**, read `registry/memory.yaml` when reviewed JSON memory is relevant, and use `scripts/memory_markdown.py read` for bounded Markdown memory retrieval. Give the project write access only to `trajectories/inbox/`; the Markdown writer remains a separate bounded operation. Reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
 
 After an eligible project task finishes, ask for an export explicitly. A reusable instruction is:
 

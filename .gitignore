@@ -27,6 +27,7 @@
 !/schemas/continuity-project.schema.json
 !/schemas/continuity-checkpointer.schema.json
 !/schemas/continuity-index.schema.json
+!/schemas/memory-note.schema.json
 !/scripts/
 /scripts/**
 !/scripts/_common.py
@@ -43,6 +44,10 @@
 !/scripts/continuity_adapters.py
 !/scripts/sync_continuity.py
 !/scripts/complete_continuity.py
+!/scripts/memory_markdown.py
+!/scripts/sync_obsidian.py
+!/scripts/check_obsidian.py
+!/scripts/migrate_codex_memory.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -70,6 +75,9 @@
 !/tests/test_adapters.py
 !/tests/test_sync_continuity.py
 !/tests/test_complete_continuity.py
+!/tests/test_memory_markdown.py
+!/tests/test_obsidian.py
+!/tests/test_migrate_codex_memory.py
 !/evals/
 !/evals/**/
 /evals/**
@@ -99,6 +107,7 @@
 !/logs/.gitkeep
 
 # Explicit local agent-rule/config exclusions, in addition to the allowlist.
+/obsidian-vault/
 /AGENTS.md
 /AGENTS.override.md
 /.agents/

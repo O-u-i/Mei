@@ -5,6 +5,7 @@ import sys
 import unittest
 import shutil
 import uuid
+import tomllib
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -67,6 +68,13 @@ class V0ContractTests(unittest.TestCase):
             for name in ("VERSION", "README.md", ".codex/config.example.toml"):
                 shutil.copyfile(ROOT / name, root / name)
             initialize(root, root / "codex")
+            with (root / "local" / "paths.toml").open("rb") as stream:
+                local_config = tomllib.load(stream)
+            self.assertEqual(
+                Path(local_config["paths"]["obsidian_vault"]).resolve(),
+                (root / "obsidian-vault").resolve(),
+            )
+            self.assertTrue((root / "obsidian-vault" / ".obsidian").is_dir())
             current_version = (root / "VERSION").read_text(encoding="utf-8").strip()
             local_paths = root / "local" / "paths.toml"
             old_skills_root = json.dumps(str(root / "codex" / "skills"))

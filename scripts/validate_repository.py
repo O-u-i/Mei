@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 from _common import ROOT, assert_unique_ids, check_private_content, read_json, source_digest, supports_registry_version, validate_schema, validate_trajectory_store, version
 from normalize_trajectory import normalization_payload
 from rebuild_registry import expected_registry
+from memory_markdown import doctor as markdown_doctor
 
 
 def check_local_paths(root: Path) -> dict[str, Path]:
@@ -62,6 +63,11 @@ def validate_repository(root: Path = ROOT) -> None:
         raise ValueError(f"unexpected Mei version: {current_version}")
     if f"Mei {current_version}" not in (root / "README.md").read_text(encoding="utf-8"):
         raise ValueError("README version differs from VERSION")
+    markdown_root = root / "memory" / "markdown"
+    if markdown_root.exists():
+        markdown_result = markdown_doctor(markdown_root, schema_root=root)
+        if markdown_result.get("status") != "ok":
+            raise ValueError(f"Markdown memory invalid: {markdown_result.get('error', markdown_result)}")
     for schema_path in (root / "schemas").glob("*.schema.json"):
         Draft202012Validator.check_schema(read_json(schema_path))
     trajectory_store = validate_trajectory_store(root)

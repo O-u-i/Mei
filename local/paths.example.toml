@@ -10,7 +10,7 @@ codex_memory_source_gui = "<absolute-path-to-GUI-Codex-directory>/memories"
 codex_memory_source_tui = "<absolute-path-to-TUI-Codex-directory>/memories"
 skills_root = "<absolute-path-to-personal-Codex-skills>"
 inbox = "<absolute-path-to-Mei-inbox>"
-obsidian_vault = "<absolute-path-to-existing-Obsidian-vault>"
+obsidian_vault = "<absolute-path-to-Mei-checkout>/obsidian-vault"
 obsidian_memory_dir = "Mei Memory"
 
 [profiles]
