@@ -1,19 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Mei Markdown memory note v0.1.0",
+  "title": "Mei Markdown memory note v0.2.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "memory_id", "category", "status", "scope", "source"],
+  "required": ["schema_version", "memory_id", "category", "status", "scope", "source", "source_format", "provenance", "review_due_at", "review_triggers", "references", "conflicts", "related", "relations", "updated_at", "migrated_from", "migrated_at"],
   "properties": {
-    "schema_version": {"const": "v0.1.0"},
+    "schema_version": {"const": "v0.2.0"},
     "memory_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
     "category": {"enum": ["profile", "preferences", "domain", "procedural", "project", "feedback"]},
     "status": {"enum": ["active", "archived"]},
     "scope": {"type": "string", "minLength": 1, "maxLength": 240},
     "source": {"type": "string", "minLength": 1, "maxLength": 500},
-    "review_required": {"type": "boolean"},
+    "source_format": {"enum": ["markdown", "json"]},
+    "provenance": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["source", "locator", "evidence_type", "verified_at"], "properties": {"source": {"type": "string", "minLength": 1}, "locator": {"type": "string", "minLength": 1}, "evidence_type": {"enum": ["current_file", "prior_memory", "trajectory", "user_decision", "test_result"]}, "verified_at": {"type": ["string", "null"], "format": "date-time"}}}},
+    "review_due_at": {"type": ["string", "null"], "format": "date-time"},
     "review_triggers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+    "references": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "conflicts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "related": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"}},
     "relationships": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"}},
-    "updated_at": {"type": "string", "format": "date-time"}
+    "relations": {"type": "array", "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["type", "target"], "properties": {"type": {"enum": ["supersedes", "superseded_by", "depends_on", "dependency_of", "supports", "supported_by", "contradicts", "contradicted_by"]}, "target": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"}}}},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "migrated_from": {"type": ["string", "null"]},
+    "migrated_at": {"type": ["string", "null"], "format": "date-time"},
+    "review_required": {"type": "boolean"},
+    "mei_generated": {"type": "boolean"},
+    "source_path": {"type": "string"},
+    "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
   }
 }

@@ -26,11 +26,12 @@ from memory_markdown import (
     read_note,
     resolve_memory_root,
     write_note,
+    _UniqueLoader,
 )
 from sync_obsidian import resolve_vault, sync_obsidian
 
 
-SCHEMA_VERSION = "v0.1.0"
+SCHEMA_VERSION = "v0.2.0"
 PROPOSAL_SCHEMA = "memory-proposal.schema.json"
 MAX_PROPOSAL_BYTES = 262_144
 MAX_CARD_BYTES = 131_072
@@ -288,8 +289,15 @@ def _read_proposal(path: Path, root: Path) -> dict[str, Any]:
         raw = path.read_bytes()
         if len(raw) > MAX_PROPOSAL_BYTES:
             raise ProposalError("proposal exceeds the byte cap")
-        value = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        text = raw.decode("utf-8")
+        if path.suffix.casefold() == ".md":
+            if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+                raise ProposalError("proposal frontmatter is missing")
+            marker = text.find("\n---\n", 4)
+            value = yaml.load(text[4:marker], Loader=_UniqueLoader)
+        else:
+            value = json.loads(text)
+    except (OSError, UnicodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
         raise ProposalError(f"{path}: invalid proposal") from exc
     if not isinstance(value, dict):
         raise ProposalError(f"{path}: proposal must be an object")
@@ -299,7 +307,17 @@ def _read_proposal(path: Path, root: Path) -> dict[str, Any]:
 
 
 def _write_proposal(path: Path, value: dict[str, Any], root: Path, *, expected_sha256: str | None = None) -> str:
-    raw = _json_bytes(value)
+    if path.suffix.casefold() == ".md":
+        body = "## Reason\n\n" + str(value.get("reason", "")).strip() + "\n\n"
+        body += "## Proposed Change\n\n" + str(value.get("target_locator", "")) + "\n\n"
+        body += "## Diff\n\n" + str((value.get("preview") or {}).get("diff", "Pending preview.")) + "\n\n"
+        body += "## Unresolved\n\n" + "\n".join(f"- {item}" for item in (value.get("preview") or {}).get("unresolved", [])) + "\n\n"
+        body += "## Approval History\n\n" + "\n".join(f"- {item.get('event')}: {item.get('at')}" for item in value.get("history", [])) + "\n"
+        raw = ("---\n" + _frontmatter(value) + "\n---\n" + body).encode("utf-8")
+        check_private_content(value)
+        validate_schema(value, PROPOSAL_SCHEMA, ROOT)
+    else:
+        raw = _json_bytes(value)
     return _atomic_write(path, raw, expected_sha256=expected_sha256)
 
 
@@ -406,7 +424,7 @@ def _preview_payload(root: Path, proposal: dict[str, Any], current_raw: bytes | 
 
 def _duplicate_ids(root: Path, proposal: dict[str, Any]) -> list[str]:
     duplicates = []
-    for path in sorted(_proposal_dir(root).glob("*.json")):
+    for path in sorted(_proposal_dir(root).glob("*.md")):
         if path.stem == proposal["proposal_id"]:
             continue
         try:
@@ -422,7 +440,7 @@ def _render_review_index(root: Path, vault: Path, namespace_path: Path) -> str:
     review = namespace_path / "review"
     review.mkdir(parents=True, exist_ok=True)
     rows = []
-    for path in sorted(_proposal_dir(root).glob("*.json")):
+    for path in sorted(_proposal_dir(root).glob("*.md")):
         try:
             proposal = _read_proposal(path, root)
         except (ProposalError, OSError, ValueError):
@@ -493,7 +511,7 @@ def draft_proposal(
     if not PROPOSAL_ID_PATTERN.fullmatch(pid):
         raise ProposalError("proposal_id is invalid")
     directory = _proposal_dir(root, create=True)
-    path = directory / f"{pid}.json"
+    path = directory / f"{pid}.md"
     with _context_lock(directory, 5.0):
         existing = _read_proposal(path, root) if path.exists() else None
         vault, namespace_path, namespace_name = _open_vault(root, vault_root, namespace)
@@ -554,7 +572,7 @@ def draft_proposal(
 
 def preview_proposal(proposal_id: str, *, mei_root: str | Path | None = None, vault_root: str | Path | None = None, namespace: str | None = None) -> dict[str, Any]:
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.json"
+    path = _proposal_dir(root) / f"{proposal_id}.md"
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         vault, namespace_path, _ = _open_vault(root, vault_root, namespace)
@@ -580,7 +598,7 @@ def preview_proposal(proposal_id: str, *, mei_root: str | Path | None = None, va
 def status_proposals(proposal_id: str | None = None, *, mei_root: str | Path | None = None) -> dict[str, Any]:
     root = _root(mei_root)
     directory = _proposal_dir(root, create=proposal_id is None)
-    paths = [directory / f"{proposal_id}.json"] if proposal_id else sorted(directory.glob("*.json"))
+    paths = [directory / f"{proposal_id}.md"] if proposal_id else sorted(directory.glob("*.md"))
     entries = []
     for path in paths:
         proposal = _read_proposal(path, root)
@@ -603,7 +621,7 @@ def validate_proposal_store(root: str | Path = ROOT) -> int:
     if not directory.is_dir():
         raise ProposalError("memory/proposals is not a directory")
     ids: set[str] = set()
-    for path in sorted(directory.glob("*.json")):
+    for path in sorted(directory.glob("*.md")):
         proposal = _read_proposal(path, root_path)
         if path.stem != proposal["proposal_id"] or proposal["proposal_id"] in ids:
             raise ProposalError(f"invalid or duplicate proposal id: {path}")
@@ -624,7 +642,7 @@ def check_review_workbench(
         errors: list[str] = []
         count = 0
         proposal_dir = root / "memory" / "proposals"
-        for path in sorted(proposal_dir.glob("*.json")) if proposal_dir.is_dir() else []:
+        for path in sorted(proposal_dir.glob("*.md")) if proposal_dir.is_dir() else []:
             proposal = _read_proposal(path, root)
             count += 1
             card = _card_path(vault, namespace_path, proposal["proposal_id"])
@@ -648,7 +666,7 @@ def check_review_workbench(
 
 def apply_proposal(proposal_id: str, *, confirm: bool = False, mei_root: str | Path | None = None, vault_root: str | Path | None = None, namespace: str | None = None) -> dict[str, Any]:
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.json"
+    path = _proposal_dir(root) / f"{proposal_id}.md"
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         if proposal["status"] == "applied":
@@ -731,7 +749,7 @@ def reject_proposal(proposal_id: str, reason: str, *, mei_root: str | Path | Non
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
         raise ProposalError("a bounded rejection reason is required")
     root = _root(mei_root)
-    path = _proposal_dir(root) / f"{proposal_id}.json"
+    path = _proposal_dir(root) / f"{proposal_id}.md"
     with _context_lock(_proposal_dir(root), 5.0):
         proposal = _read_proposal(path, root)
         if proposal["status"] == "applied":

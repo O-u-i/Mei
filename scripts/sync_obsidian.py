@@ -75,6 +75,8 @@ def _namespace_parts(namespace: str) -> list[str]:
     if not isinstance(namespace, str) or not namespace.strip():
         raise MemoryError("obsidian namespace must be non-empty")
     normalized = namespace.replace("\\", "/").strip("/")
+    if normalized in {".", "root"}:
+        return []
     parts = normalized.split("/")
     if any(part in ("", ".", "..", ".obsidian") for part in parts):
         raise MemoryError("unsafe Obsidian namespace; it must stay inside the vault and outside .obsidian")
@@ -107,18 +109,30 @@ def resolve_vault(
     vault = vault.resolve()
     if not vault.is_dir():
         raise MemoryError(f"configured Obsidian vault is missing: {vault}")
+    if vault.name.casefold() == "obsidian-vault" and (vault.parent / "memory" / "markdown").is_dir():
+        raise MemoryError("obsidian-vault is retired; use memory/markdown as the direct vault root")
     _assert_no_reparse(vault)
     if any((parent / ".obsidian").is_dir() for parent in vault.parents):
         raise MemoryError("configured vault is nested inside another Obsidian vault")
-    namespace = namespace or config.get("obsidian_memory_dir") or DEFAULT_NAMESPACE
+    configured_namespace = namespace if namespace is not None else config.get("obsidian_memory_dir")
+    direct_root = (vault / INDEX_NAME).is_file() and all((vault / category).is_dir() for category in ("profile", "preferences", "domain", "procedural", "project", "feedback"))
+    namespace = configured_namespace or ("" if direct_root else DEFAULT_NAMESPACE)
+    if not namespace:
+        return vault, vault, ""
     parts = _namespace_parts(namespace)
     namespace_path = vault.joinpath(*parts)
     _assert_no_reparse(namespace_path)
-    if (namespace_path / ".obsidian").exists():
+    if namespace_path != vault and (namespace_path / ".obsidian").exists():
         raise MemoryError("Mei namespace must not contain a nested vault")
     if namespace_path.resolve(strict=False) == (vault / ".obsidian").resolve(strict=False):
         raise MemoryError("Mei namespace cannot be .obsidian")
-    return vault, namespace_path, "/".join(parts)
+    return vault, namespace_path, "/".join(parts) if parts else "."
+
+
+def _namespace_prefix(vault: Path, namespace_path: Path) -> str:
+    """Return a safe relative prefix; direct-root mode has no prefix."""
+    relative = namespace_path.relative_to(vault).as_posix()
+    return "" if relative == "." else relative
 
 
 def _atomic_write(path: Path, raw: bytes) -> None:
@@ -165,22 +179,8 @@ def _frontmatter_text(value: dict[str, Any]) -> str:
 
 
 def _projection(note: dict[str, Any]) -> str:
-    frontmatter = {
-        "schema_version": note["schema_version"],
-        "memory_id": note["memory_id"],
-        "category": note["category"],
-        "status": note["status"],
-        "scope": note["scope"],
-        "source": note["source"],
-        "mei_generated": True,
-        "source_path": note["path"],
-        "source_sha256": note["sha256"],
-    }
-    for key in ("review_triggers", "updated_at"):
-        if key in note:
-            frontmatter[key] = note[key]
-    if note.get("relationships"):
-        frontmatter["relationships"] = [f"[[{target}]]" for target in note["relationships"]]
+    frontmatter = {key: value for key, value in note.items() if key not in {"body", "path", "sha256"}}
+    frontmatter.update({"mei_generated": True, "source_path": note["path"], "source_sha256": note["sha256"]})
     return f"---\n{_frontmatter_text(frontmatter)}\n---\n{note['body']}"
 
 
@@ -216,11 +216,12 @@ def _plan(
     views = namespace_path / "views"
     old_manifest, manifest_hash = _read_manifest(namespace_path / MANIFEST_NAME)
     old_notes = old_manifest.get("notes", {}) if old_manifest else {}
+    prefix = _namespace_prefix(vault, namespace_path)
     changes = {"added": [], "updated": [], "unchanged": [], "drifted": [], "skipped": []}
     page_paths: dict[str, Path] = {}
     observed: dict[Path, str | None] = {}
     for memory_id, content in rendered.items():
-        page = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/views/{memory_id}.md", "projection")
+        page = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}views/{memory_id}.md", "projection")
         page_paths[memory_id] = page
         expected_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         previous = old_notes.get(memory_id)
@@ -239,7 +240,7 @@ def _plan(
         if memory_id not in rendered:
             changes["skipped"].append(memory_id)
     desired_index = _projection_index(notes, source_generation, source_digest)
-    index_path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/index.md", "projection index")
+    index_path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}index.md", "projection index")
     observed[index_path] = hashlib.sha256(index_path.read_bytes()).hexdigest() if index_path.exists() else None
     desired_index_hash = hashlib.sha256(desired_index.encode("utf-8")).hexdigest()
     index_change = "added"
@@ -263,7 +264,7 @@ def _plan(
         }
     desired_manifest = {
         "schema_version": MANIFEST_SCHEMA,
-        "namespace": namespace_path.relative_to(vault).as_posix(),
+        "namespace": prefix or ".",
         "source_generation": source_generation,
         "source_sha256": source_digest,
         "index_sha256": desired_index_hash,
@@ -315,6 +316,8 @@ def sync_obsidian(
     memory_root = Path(memory_root or resolve_memory_root()).expanduser()
     _assert_no_reparse(memory_root)
     memory_root = memory_root.resolve()
+    if namespace is None and vault_root is not None and Path(vault_root).expanduser().resolve() == memory_root:
+        namespace = "."
     vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace, config_path=config_path)
     if not namespace_path.exists() and mode == "check":
         return {"status": "missing", "namespace": namespace_name, "required_action": "sync"}
@@ -375,10 +378,13 @@ def check_vault(
     memory_root: str | Path | None = None,
 ) -> dict[str, Any]:
     try:
+        if namespace is None and vault_root is not None and memory_root is not None and Path(vault_root).expanduser().resolve() == Path(memory_root).expanduser().resolve():
+            namespace = "."
         vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace)
         if not namespace_path.is_dir():
             return {"status": "missing", "namespace": namespace_name, "errors": ["Mei namespace is missing"]}
         manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
+        prefix = _namespace_prefix(vault, namespace_path)
         errors: list[str] = []
         if manifest is None:
             errors.append("manifest is missing")
@@ -392,7 +398,7 @@ def check_vault(
         for memory_id, entry in manifest.get("notes", {}).items():
             locator = entry.get("path")
             try:
-                path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/{locator}", "manifest note")
+                path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}{locator}", "manifest note")
             except MemoryError as exc:
                 errors.append(str(exc))
                 continue
@@ -442,9 +448,10 @@ def check_vault(
 def note_uri(vault_root: str | Path | None, locator: str, *, namespace: str | None = None) -> str:
     """Build an open-only URI for one validated generated page; never launch it."""
     vault, namespace_path, _ = resolve_vault(vault_root, namespace)
+    prefix = _namespace_prefix(vault, namespace_path)
     if not PATH_PATTERN.fullmatch(locator):
         raise MemoryError("URI target must be a generated views/<memory_id>.md note")
-    path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/{locator}", "URI note")
+    path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}{locator}", "URI note")
     manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
     entry = (manifest or {}).get("notes", {}).get(path.stem)
     if not entry or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry["rendered_sha256"]:
@@ -459,8 +466,11 @@ def import_inbox(vault_root: str | Path | None, filename: str, *, memory_root: s
         raise MemoryError("explicit personal scope and privacy review is required")
     if not filename.endswith(".md") or "/" in filename or "\\" in filename:
         raise MemoryError("inbox input must be one Markdown filename")
+    if namespace is None and vault_root is not None and memory_root is not None and Path(vault_root).expanduser().resolve() == Path(memory_root).expanduser().resolve():
+        namespace = "."
     vault, namespace_path, _ = resolve_vault(vault_root, namespace)
-    path = _safe_vault_relative(vault, f"{namespace_path.relative_to(vault).as_posix()}/inbox/{filename}", "inbox capture")
+    prefix = _namespace_prefix(vault, namespace_path)
+    path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}inbox/{filename}", "inbox capture")
     raw = path.read_bytes()
     note = parse_note(raw.decode("utf-8"), path)
     if note.get("review_required"):

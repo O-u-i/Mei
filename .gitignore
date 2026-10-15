@@ -50,7 +50,11 @@
 !/scripts/sync_obsidian.py
 !/scripts/check_obsidian.py
 !/scripts/migrate_codex_memory.py
+!/scripts/migrate_memory.py
 !/scripts/review_proposals.py
+!/scripts/memory.py
+!/scripts/relations.py
+!/scripts/light_architecture.mjs
 !/scripts/continuity_handoff.py
 !/policies/
 /policies/**
@@ -60,9 +64,10 @@
 !/policies/skill-policy.md
 !/policies/trajectory-policy.md
 
-# Two reviewed, generic Archify diagrams used by the public README.
+# Reviewed, generic Archify diagrams used by the public README or retained as history.
 !/docs/
 /docs/**
+/docs/learning/
 !/docs/architecture/
 !/docs/architecture/memory-read.architecture.json
 !/docs/architecture/memory-read.html
@@ -70,6 +75,9 @@
 !/docs/architecture/memory-promotion.workflow.json
 !/docs/architecture/memory-promotion.html
 !/docs/architecture/memory-promotion.svg
+!/docs/architecture/memory-v2.workflow.json
+!/docs/architecture/memory-v2.workflow.html
+!/docs/architecture/memory-v2.workflow.svg
 # Planning, research, receipts, and other diagrams remain local.
 !/tests/
 /tests/**
@@ -83,6 +91,7 @@
 !/tests/test_memory_markdown.py
 !/tests/test_obsidian.py
 !/tests/test_migrate_codex_memory.py
+!/tests/test_v2_memory.py
 !/tests/test_review_proposals.py
 !/tests/test_continuity_handoff.py
 !/evals/

@@ -24,12 +24,12 @@ def fixture_root() -> Path:
 def note(memory_id: str, body: str) -> str:
     return (
         "---\n"
-        "schema_version: v0.1.0\n"
+        "schema_version: v0.2.0\n"
         f"memory_id: {memory_id}\n"
         "category: project\n"
         "status: active\n"
         "scope: test project\n"
-        "source: test\n"
+        "source: test\nsource_format: markdown\nprovenance:\n  - source: test\n    locator: test\n    evidence_type: test_result\n    verified_at: null\nreview_due_at: null\nreview_triggers: []\nreferences: []\nconflicts: []\nrelated: []\nrelations: []\nupdated_at: '2026-10-15T00:00:00Z'\nmigrated_from: null\nmigrated_at: null\n"
         "---\n"
         f"{body}"
     )

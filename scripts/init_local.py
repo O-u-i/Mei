@@ -35,15 +35,18 @@ def initialize(root: Path = ROOT, codex_home: Path | None = None) -> list[Path]:
         "inbox": root / "trajectories" / "inbox",
     }
     obsidian_vault = Path(
-        os.environ.get("MEI_OBSIDIAN_VAULT", str(root / "obsidian-vault"))
+        os.environ.get("MEI_OBSIDIAN_VAULT", str(root / "memory" / "markdown"))
     ).expanduser().resolve()
     obsidian_vault.mkdir(parents=True, exist_ok=True)
     (obsidian_vault / ".obsidian").mkdir(exist_ok=True)
+    for category in ("profile", "preferences", "domain", "procedural", "project", "feedback"):
+        (obsidian_vault / category).mkdir(exist_ok=True)
+    (obsidian_vault / "MEMORY.md").touch(exist_ok=True)
 
     local_config = "[paths]\n"
     local_config += "".join(f"{key} = {json.dumps(str(value), ensure_ascii=False)}\n" for key, value in paths.items())
     local_config += f"obsidian_vault = {json.dumps(str(obsidian_vault), ensure_ascii=False)}\n"
-    local_config += f"obsidian_memory_dir = {json.dumps(os.environ.get('MEI_OBSIDIAN_MEMORY_DIR', 'Mei Memory'), ensure_ascii=False)}\n"
+    local_config += f"obsidian_memory_dir = {json.dumps(os.environ.get('MEI_OBSIDIAN_MEMORY_DIR', ''), ensure_ascii=False)}\n"
     local_config += '\n[profiles]\nproject = "mei-project"\nmaintainer = "mei-maintainer"\n'
 
     sources = [

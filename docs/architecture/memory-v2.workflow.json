@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Mei v2.0.0 记忆工作流",
+    "locale": "zh-CN",
+    "quality_profile": "standard",
+    "visual_preset": "classic",
+    "viewBox": [2048, 1320],
+    "views": [
+      {"id": "runtime-read", "label": "运行时读取", "focus": ["project", "index", "notes", "context"], "note": "只读取活动 Markdown 记忆和必要的 continuity 状态。"},
+      {"id": "review-write", "label": "提案写入", "focus": ["project", "proposal", "preview", "approval", "apply", "audit"], "note": "已有 note 的修改必须经过提案、预览、哈希检查和明确批准。"},
+      {"id": "migration", "label": "迁移与回滚", "focus": ["legacy", "plan", "migrate", "verify", "rollback"], "note": "legacy JSON 保留原字节，迁移产物可验证、可重复、可回滚。"}
+    ]
+  },
+  "lanes": [
+    {"id": "caller", "label": "项目调用方"},
+    {"id": "runtime", "label": "Mei Runtime"},
+    {"id": "canonical", "label": "Markdown Canonical"},
+    {"id": "review", "label": "人工审核"},
+    {"id": "technical", "label": "技术协议与证据"},
+    {"id": "failure", "label": "失败与恢复", "variant": "exception"}
+  ],
+  "phases": [
+    {"id": "read_phase", "label": "读取", "fromCol": 0, "toCol": 1},
+    {"id": "canonical_phase", "label": "Canonical", "fromCol": 2, "toCol": 3, "variant": "emphasis"},
+    {"id": "governance_phase", "label": "治理写入", "fromCol": 4, "toCol": 5, "variant": "security"}
+  ],
+  "groups": [
+    {"id": "active_memory", "label": "默认检索范围", "lane": "canonical", "fromCol": 1, "toCol": 3, "variant": "emphasis"},
+    {"id": "approval_gate", "label": "审批边界", "lane": "review", "fromCol": 3, "toCol": 5, "variant": "security"},
+    {"id": "legacy_evidence", "label": "只读 legacy evidence", "lane": "technical", "fromCol": 0, "toCol": 2, "variant": "dashed"}
+  ],
+  "mainPath": ["project", "index", "notes", "proposal", "preview", "approval", "apply", "audit"],
+  "semanticChecks": {
+    "allowedRoots": ["project", "legacy"],
+    "allowedTerminals": ["context", "audit", "rollback", "reject"],
+    "requiredEdges": [
+      {"from": "project", "to": "index"},
+      {"from": "index", "to": "notes"},
+      {"from": "proposal", "to": "preview"},
+      {"from": "preview", "to": "approval"},
+      {"from": "approval", "to": "apply"},
+      {"from": "apply", "to": "audit"}
+    ],
+    "requiredPaths": [
+      {"from": "legacy", "to": "plan"},
+      {"from": "plan", "to": "migrate"},
+      {"from": "migrate", "to": "verify"},
+      {"from": "verify", "to": "rollback"}
+    ]
+  },
+  "nodes": [
+    {"id": "project", "lane": "caller", "col": 0, "type": "frontend", "label": "项目任务", "width": 180},
+    {"id": "index", "lane": "runtime", "col": 1, "type": "backend", "label": "MEMORY.md", "width": 180},
+    {"id": "notes", "lane": "canonical", "col": 2, "type": "database", "label": "活动 Markdown", "width": 180},
+    {"id": "context", "lane": "runtime", "col": 3, "type": "backend", "label": "选择性上下文", "width": 180},
+    {"id": "proposal", "lane": "review", "col": 3, "type": "security", "label": "Proposal .md", "width": 180},
+    {"id": "preview", "lane": "review", "col": 4, "type": "security", "label": "Preview + hash", "width": 180},
+    {"id": "approval", "lane": "review", "col": 5, "type": "security", "label": "明确批准", "width": 180},
+    {"id": "apply", "lane": "canonical", "col": 5, "type": "backend", "label": "Atomic apply", "width": 180},
+    {"id": "audit", "lane": "technical", "col": 5, "type": "database", "label": "Audit", "width": 180},
+    {"id": "legacy", "lane": "technical", "col": 0, "type": "database", "label": "Legacy JSON", "width": 180},
+    {"id": "plan", "lane": "technical", "col": 1, "type": "backend", "label": "Plan", "width": 180},
+    {"id": "migrate", "lane": "technical", "col": 2, "type": "backend", "label": "JSON 迁移", "width": 180},
+    {"id": "verify", "lane": "technical", "col": 3, "type": "security", "label": "Verify", "width": 180},
+    {"id": "rollback", "lane": "failure", "col": 4, "type": "messagebus", "label": "Rollback", "width": 180, "yOffset": -34},
+    {"id": "reject", "lane": "failure", "col": 4, "type": "security", "label": "Reject", "width": 180, "yOffset": 34}
+  ],
+  "edges": [
+    {"from": "project", "to": "index", "label": "read", "role": "main"},
+    {"from": "index", "to": "notes", "label": "select", "role": "main"},
+    {"from": "notes", "to": "context", "label": "inject bounded context", "role": "main"},
+    {"from": "notes", "to": "proposal", "label": "change request", "role": "main", "variant": "dashed"},
+    {"from": "proposal", "to": "preview", "label": "render diff", "role": "main"},
+    {"from": "preview", "to": "approval", "label": "base hash matches", "role": "main"},
+    {"from": "approval", "to": "apply", "label": "explicit approval", "role": "main", "variant": "security"},
+    {"from": "apply", "to": "audit", "label": "write receipt", "role": "main"},
+    {"from": "preview", "to": "reject", "label": "stale / unresolved", "role": "error", "variant": "security"},
+    {"from": "legacy", "to": "plan", "label": "read-only scan", "role": "branch", "variant": "dashed"},
+    {"from": "plan", "to": "migrate", "label": "approved migration", "role": "main"},
+    {"from": "migrate", "to": "verify", "label": "manifest + SHA-256", "role": "main"},
+    {"from": "verify", "to": "rollback", "label": "failed verification", "role": "error", "variant": "security", "route": "drop", "fromSide": "bottom", "toSide": "top"},
+    {"from": "rollback", "to": "migrate", "label": "remove created Markdown", "role": "return", "variant": "dashed", "route": "return-left", "fromSide": "left", "toSide": "left"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "Canonical source", "items": ["活动 Markdown/YAML note 是 runtime truth", "MEMORY.md 与 registry/memory.yaml 都是 bounded generated index"]},
+    {"dot": "amber", "title": "Approval boundary", "items": ["已有 note 修改必须 proposal → preview → explicit approval → atomic apply", "Obsidian checkbox 只能表达 intent"]},
+    {"dot": "rose", "title": "Evidence safety", "items": ["continuity / trajectory / episodic JSON 不迁移", "legacy JSON 保留原字节，verify 失败时可 rollback"]}
+  ]
+}

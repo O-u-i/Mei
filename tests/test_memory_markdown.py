@@ -27,12 +27,15 @@ def note(memory_id: str, category: str, body: str, *, relationships: list[str] |
         relation_block = "relationships:\n" + "".join(f"  - {item}\n" for item in relationships)
     return (
         "---\n"
-        "schema_version: v0.1.0\n"
+        "schema_version: v0.2.0\n"
         f"memory_id: {memory_id}\n"
         f"category: {category}\n"
         "status: active\n"
         "scope: test scope\n"
         "source: user_decision\n"
+        "source_format: markdown\n"
+        "provenance:\n  - source: user_decision\n    locator: test\n    evidence_type: user_decision\n    verified_at: null\n"
+        "review_due_at: null\nreview_triggers: []\nreferences: []\nconflicts: []\nrelated: []\nrelations: []\nupdated_at: '2026-10-15T00:00:00Z'\nmigrated_from: null\nmigrated_at: null\n"
         f"{relation_block}"
         "---\n"
         f"{body}"

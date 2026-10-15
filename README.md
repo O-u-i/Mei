@@ -1,309 +1,258 @@
-# Mei v1.5.0
+# Mei v2.0.0
 
-**Mei is a local-first system for carrying agent memory across projects.** Personal memory uses a bounded `MEMORY.md` index plus Markdown detail notes; reviewed JSON memory and Curator promotion remain available for governed claims. The public repository is a reusable scaffold with folder placeholders, base scripts, schemas, synthetic examples, five reviewed general policies, and two generic Archify diagrams. Actual memories, trajectories, skills, and local review evidence belong only in the local checkout.
+Mei 是本地优先的 agent memory 基础设施。memory/markdown/ 是唯一的
+runtime canonical source of truth，也是可直接打开的 Obsidian vault root。
+Markdown 正文保存 claim、evidence、history；YAML frontmatter 保存 scope、
+provenance、status、关系和审计字段。
 
-**Version:** [v1.5.0](VERSION) · **Status:** active
+memory/legacy-json/ 只读用于 migration、audit、rollback、export。
+memory/continuity/、trajectories/、memory/episodic/ 下的 JSON 是独立技术
+协议，迁移不会触碰它们。
 
-## Current behavior and direction
+**版本:** v2.0.0 · **运行时 canonical:** Markdown/YAML
 
-| Stage | Current behavior |
+## What changed
+
+| 主题 | v2.0.0 行为 |
 | --- | --- |
-| Current read | The released reader selects continuity state and reviewed JSON memory by their existing indexes. The Phase 6 Markdown reader and note doctor are available locally. |
-| Current capture | A task may create one redacted JSON trajectory when a sensitive, cross-project, or ambiguous claim needs Curator review. Export is deliberate, not an automatic session hook. |
-| Current review | A manually started Curator checks provenance, duplicates, conflicts, and evidence before creating or promoting a governed memory record. |
-| Direction | `memory/markdown/MEMORY.md` plus detail notes are the personal-memory hot path; governed JSON and Curator review remain the audit path. |
+| Canonical memory | 活动 Markdown note + YAML frontmatter；MEMORY.md 是 bounded generated index。 |
+| Generated artifacts | registry/memory.yaml 和 MEMORY.md 由活动 note 生成，不是事实来源。 |
+| Proposal | memory/proposals/<proposal-id>.md；支持 draft、previewed、approved、applied、stale、rejected、failed。 |
+| Write boundary | P1 只读；P2 可直接新建低风险 note；已有 note 修改必须 proposal、preview、current hash、explicit approval、atomic apply、audit。 |
+| Relations | 统一 writer 双端更新 reciprocal/typed inverse；drift 只能生成 repair proposal。 |
+| Obsidian | memory/markdown/ 直接作为 vault root；旧 obsidian-vault/ 不再读取。 |
+| Legacy JSON | 原字节保留在 memory/legacy-json/，不进入默认 retrieval，也不能被新 writer 修改。 |
 
-### Continuity read and checkpoint
+## Flow
 
-The read-only continuity loader selects one repository/context pair. The
-IPS-0.4 target is for GUI and TUI startup to use the same Mei root by default
-while keeping `CODEX_HOME` for host authentication and runtime state. In the
-current v1.5.0 release, a trusted project hook can call the shared adapter
-from any `CODEX_HOME`; it selects the single open context when no
-`--context-id` is given, reports `context_missing` or `context_ambiguous`
-instead of creating or merging, and injects the bounded `MEMORY.md` digest;
-the loader
-reads the Git-ignored `registry/continuity.yaml` index and the selected
-`memory/continuity/<repo-id>/<context-id>/project.json` plus
-`checkpointer.json`, validates containment, schemas, privacy backstops and
-hashes, and reports `clean`, `dirty`, `stale`, `needs_reconcile`, `conflict`,
-`completed`, or `retired`.
-It never repairs state or writes a hook marker. GUI and TUI callers use the
-same public loader through the Phase 4 host-facing adapters. The adapters are
-read-only Python entry points; they do not install GUI/TUI hooks or claim host
-ACL enforcement.
+当前 Archify workflow v2 只交付 Light、2048×1320 的 JSON、HTML、SVG。
 
-GUI and TUI callers can select the same context through the shared adapter
-module:
+- [Light SVG](docs/architecture/memory-v2.workflow.svg)
+- [Light interactive HTML](docs/architecture/memory-v2.workflow.html)
+- [Editable workflow JSON](docs/architecture/memory-v2.workflow.json)
 
-```python
-from scripts.continuity_adapters import read_gui_context, read_tui_context
+~~~mermaid
+flowchart LR
+    task[项目任务] --> index[MEMORY.md]
+    index --> notes[活动 Markdown]
+    notes --> context[选择性上下文]
+    notes -. change request .-> proposal[Proposal .md]
+    proposal --> preview[Preview + base hash]
+    preview --> approval{明确批准}
+    approval -->|通过| apply[Atomic apply]
+    approval -->|stale / unresolved| reject[Reject]
+    apply --> audit[Audit receipt]
+    legacy[Legacy JSON] -. read-only scan .-> plan[Plan]
+    plan --> migrate[JSON -> Markdown]
+    migrate --> verify[Verify]
+    verify -->|失败| rollback[Rollback]
+    rollback -. remove created Markdown .-> migrate
+~~~
 
-gui_state = read_gui_context(repository_root, "shared", mei_root=mei_root)
-tui_state = read_tui_context(repository_root, "shared", mei_root=mei_root)
-```
+读取只打开 index 和相关的活动 note；review_required、proposal、archive、
+legacy evidence 不进入默认检索。已有 note 修改先绑定目标 SHA-256，hash 变化
+就变为 stale，不覆盖并发修改。明确批准且 approved content hash 匹配后，apply
+才会原子写入并记录 audit。
 
-Both calls return the loader payload, including the selected `repo_id`,
-`context_id`, live repository facts, status, and diagnostics. They never repair
-state or write continuity, trajectory, candidate, canonical, or registry data.
+迁移先扫描重复 ID、非法字段、冲突和关系目标，再复制旧 JSON 原字节、写入
+Markdown、生成 manifest 并 verify。rollback 只删除本次 manifest 创建的
+Markdown，不删除 legacy JSON、continuity、trajectory 或 episodic 数据。
 
-For a configured local checkout, inspect one context with:
+## Start here
 
-```text
-python scripts/check_continuity.py --repo-root <repository-root> --context-id <id>
-```
+需要 Python 3.11+。Archify 是开发文档工具，不是 runtime dependency；没有
+Node 或 Obsidian GUI 时，CLI、doctor、search、proposal、relation、migration
+仍可完整运行。
 
-The reader derives the continuity root from the Mei checkout passed as
-`--mei-root` (the script defaults to its own checkout), so the state stays
-within the selected Mei checkout.
-
-The narrow checkpoint command updates one existing indexed context. The caller
-loads the context, edits a reviewed project payload, then submits the snapshot's
-generation and project/index hashes. It acquires an OS-released context lock,
-rejects stale snapshots, validates the payload and replaces `project.json` and
-`checkpointer.json` atomically one at a time. A mismatch between replacements
-is reported as `needs_reconcile`; both files are preserved until an explicit
-reviewed recovery payload is submitted with a fresh snapshot and `--reconcile`.
-Every accepted checkpoint remains `dirty` until an explicitly reviewed payload
-is synchronized. The Phase 3 sync operation rechecks the snapshot's generation
-and project/index hashes under the same context lock, reports deterministic
-`added`, `updated`, `archived`, and `skipped` field lists, and atomically marks
-the saved generation clean. An identical clean payload is a no-op; an identical
-payload for a dirty checkpoint only advances the synced-generation bookkeeping.
-
-```text
-python scripts/sync_continuity.py --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-snapshot.json> --project <reviewed-project.json> --writer-session-id <session-id>
-```
-
-Lifecycle callers may send `user_prompt_submit`, `precompact_manual`,
-`precompact_auto`, or `precompact_unknown` without prompt text. Manual compact
-is allowed only for a clean context. Automatic and unknown compact fail open
-and record `needs_reconcile` debt so a later explicit sync can repair it. These
-are reusable application seams; no production GUI/TUI hook or OS ACL is
-installed by the repository.
-
-```text
-python scripts/checkpoint_continuity.py --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --base-generation <generation> --base-project-sha256 <sha256> --base-index-sha256 <sha256> --writer-session-id <session-id> --project <reviewed-project.json>
-```
-
-A conflict exits with code 2 and returns the observed metadata plus attempted
-payload. Lock timeout exits with code 4. Recovery requires a newly read
-snapshot and `--reconcile`; it does not declare semantic sync or change the
-index. The writer only accepts an existing context and cannot create an index
-entry, write a trajectory, touch canonical or candidate memory, or install
-skills. This is an application-level path allowlist; the command neither
-configures nor proves an OS filesystem profile or ACL.
-
-### Completion and Curator bridge
-
-Phase 5 exposes four functions in `scripts/complete_continuity.py`:
-`completion_checkpoint`, `export_completed_trajectory`,
-`retire_completed_context`, and read-only `curator_handoff`.
-The caller explicitly reviews an eligible completed task and its redacted
-trajectory before setting `privacy_reviewed=True`. This is a human review
-acknowledgement, not a semantic privacy detector or proof that the task succeeded.
-
-Completion binds a deterministic repo/context trajectory ID and exact export
-hash in an optional bounded technical checkpointer receipt. It marks the project
-completed without changing the shared continuity index or invalidating unrelated
-contexts. A terminal overlay is accepted only with this receipt or an observable
-interrupted pair. Old active/blocked pairs remain readable without migration.
-The supplied trajectory ID is replaced by the context-owned ID; source generation,
-source-project hash and a portable locator are added to result evidence. Leave
-room for this evidence entry within the existing trajectory schema limits.
-
-Export atomically creates one immutable `trajectories/inbox/<id>.json` (64 KiB
-hard cap). Identical retry, including after Curator archival, finds the existing
-source; changed content or duplicate sources require review. Publication uses a
-same-directory temporary file and an atomic no-overwrite hard link; filesystems
-without hard-link support fail visibly rather than weakening this guarantee.
-Neither completion nor export writes normalized records, candidates, canonical
-memory or `registry/memory.yaml`.
-
-After export, a new GUI/TUI session can identify `completed` and explicitly retire
-the context. Retirement verifies the export hash, clears task-local semantic
-fields, and keeps stable references plus a small completed tombstone and the
-technical receipt. It does not delete files or create another handoff store.
-Completed IDs cannot host new tasks. Ordinary checkpoint/sync rejects them, and
-lifecycle signals do not make a healthy terminal context dirty again.
-
-```text
-python scripts/complete_continuity.py checkpoint --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-snapshot.json> --trajectory <reviewed-trajectory.json> --writer-session-id <session-id> --privacy-reviewed
-python scripts/complete_continuity.py export --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <new-completed-snapshot.json> --trajectory <reviewed-trajectory.json>
-python scripts/complete_continuity.py retire --repo-root <repository-root> --context-id <id> --mei-root <mei-root> --snapshot <fresh-completed-snapshot.json> --writer-session-id <session-id>
-python scripts/complete_continuity.py curator --repo-root <repository-root> --context-id <id> --mei-root <mei-root>
-```
-
-Re-read a snapshot after every continuity mutation. Conflict exits 2,
-reconciliation or pending export exits 3, and lock timeout exits 4. An interrupted
-completion/retirement pair remains `needs_reconcile`: use a fresh snapshot,
-the same reviewed trajectory (or its exported source), `checkpoint --reconcile`
-and explicit privacy review, then retry retirement with another fresh snapshot.
-The source digest is a locator/binding, not a retained copy or proof of the
-retired source's claims; Curator must still verify independent evidence.
-
-The Curator handoff reports the source path/hash and outstanding privacy,
-provenance, duplicate, conflict, currentness and explicit-promotion gates. It
-does not invoke normalization or promotion. Follow the existing separate Curator
-workflow below. Real-context migration, host hooks/ACLs and human acceptance have
-not been exercised by the synthetic Phase 5 tests. The Phase 6 Markdown and
-Obsidian bridge refreshes the vault view after `PostCompact` and reports
-`obsidian_projection_stale` without blocking continuity. Phase 7 adds
-`scripts/migrate_codex_memory.py` (`inventory`, `migrate`, `verify`): it copies
-eligible host memory files byte-for-byte into `memory/markdown/archive/codex-<host>/`
-with a Git-ignored hash manifest, never copies auth, config, SQLite, sessions,
-skills, or `.git`, and never modifies the source. Set `[host] memory_injection = false`
-in `local/paths.toml` to roll back memory injection. No automatic promotion is installed.
-
-Automatic skill mining, background scheduling, and self-modifying policies are not implemented. Existing trajectory and memory records retain `schema_version: v0.0.0`; that field is a data-format version, independent of Mei's release version. Existing same-major local registry versions remain readable across a Mei minor release and are not rewritten by validation; generated registries update when their owner explicitly rebuilds them.
-
-Personal skills are maintained separately from memory promotion. In a maintainer task, compare one proposed complete skill directory with its installed copy using `python scripts/audit_skill.py <skill-id> --proposed-dir <directory>`. This command is read-only; the [skill policy](policies/skill-policy.md) governs review, validation, and installation. Historical files under `skills/candidates/` are review evidence, not skill packages or active instructions.
-
-## How it works
-
-### Read: retrieve only relevant memory
-
-![Selective memory retrieval](docs/architecture/memory-read.svg)
-
-[Interactive Archify view](docs/architecture/memory-read.html) · [Editable source](docs/architecture/memory-read.architecture.json)
-
-Project instructions can point an agent to Mei, but they do not load every memory record. The agent reads the index and opens only records relevant to its task. Records are evidence and context, never higher-priority instructions or guaranteed current facts. Executable Codex skills live in the user's personal Codex skills directory; `registry/skills.yaml` is an inventory, not a skill loader.
-
-When a canonical record has `references`, open its local episodic `INDEX.md` only if historical detail is needed, then read the relevant linked file. These dated references preserve reviewed project episodes without turning old stack choices, license checks, or deployment permissions into current instructions. Episodic files are not indexed as canonical claims.
-
-### Write: capture first, promote after review
-
-![Capture and review memory](docs/architecture/memory-promotion.svg)
-
-[Interactive Archify view](docs/architecture/memory-promotion.html) · [Editable source](docs/architecture/memory-promotion.workflow.json)
-
-The first arrow is the **project run**: one reviewed, redacted JSON trajectory goes to `trajectories/inbox/`. Every later step belongs to an **explicit Curator run**. The Curator validates and normalizes the trajectory, then drafts a record in `memory/candidates/` and reviews its evidence, duplicates, conflicts, and scope. A candidate is not canonical memory; unresolved or invalid material is never promoted automatically. After a final promotion or rejection decision, the Curator archives the source trajectory and its normalized copy, and records the decision and reason locally. Unresolved entries remain in inbox. Approved memory enters `memory/canonical/`; the Curator rebuilds `registry/memory.yaml` and validates the repository. Both archived records retain their provenance.
-
-| Actor | Reads | Writes |
-| --- | --- | --- |
-| Ordinary project task | Memory index and selected canonical records | One new eligible trajectory in `trajectories/inbox/` |
-| Curator task | Inbox, normalized records, candidates, canonical records, and supporting evidence | Normalized records, candidates, approved canonical records, archived reviewed trajectories, and rebuilt index |
-
-Filesystem permissions must enforce this boundary locally. Codex command permissions do not automatically govern browser, connector, or other external tools.
-
-## Get started
-
-Use Python 3.11 or later with the dependencies in [requirements.txt](requirements.txt). From the repository root:
-
-```text
+~~~powershell
 python -m pip install -r requirements.txt
 python scripts/init_local.py
-python scripts/check_public_git.py
-python -m unittest discover -s tests -v
-python scripts/validate_repository.py
-```
+python scripts/memory.py init --root memory/markdown
+python scripts/memory.py doctor --root memory/markdown
+~~~
 
-`init_local.py` creates missing local files without replacing existing ones. In particular, Git-ignored `local/paths.toml` records the absolute checkout, Markdown memory root, GUI/TUI Codex homes and legacy memory sources, personal skills directory, inbox, and the local Obsidian vault paths **for this computer**. By default the vault is `obsidian-vault/` inside this Mei checkout; `MEI_OBSIDIAN_VAULT` is an explicit override. The initializer creates the vault root and `.obsidian/` directory, while the generated registries start empty on a new checkout; this repository does not ship anyone's memory or personal skills.
+检查 Git-ignored 的 local/paths.toml，确认 mei_root、memory_root、skills_root
+和 obsidian_vault 指向当前机器的实际路径。
 
-Initialize the local Markdown memory and inspect it with:
+## Daily operations
 
-```text
-python scripts/memory_markdown.py init --root memory/markdown
-python scripts/memory_markdown.py doctor --root memory/markdown
-```
+~~~powershell
+python scripts/memory.py read --root memory/markdown
+python scripts/memory.py read --root memory/markdown --id <memory-id>
+python scripts/memory.py search --root memory/markdown "关键词"
+python scripts/memory.py doctor --root memory/markdown
+~~~
 
-Readers may omit `--root` to use the configured shared `memory_root`. `read`
-loads only the index unless explicit `--id` selectors are supplied. Personal
-write operations require a separately selected narrow filesystem profile and
-explicit scope/privacy review:
+read/search 只面向活动、可检索 Markdown，不读取 legacy JSON、proposals 或技术
+协议 JSON。
 
-```bash
-python scripts/memory_markdown.py write --path preferences/example-note.md --content-file <reviewed-note.md> --reviewed-personal
-# For updates, also supply --expected-sha256 <previous-note-hash>.
-```
+P2/P3 可创建经过人工检查的低风险 preferences、project、feedback note：
 
-The writer validates the prospective IDs/links and bounded index before
-replacement. It regenerates the compact index from active note scopes; archived
-notes remain on disk but leave active retrieval. A `review_required: true`
-capture cannot be imported by the personal writer. The filesystem profile is a
-separate control: the CLI confirmation is not an ACL or governed promotion.
+~~~powershell
+python scripts/memory.py write --root memory/markdown --path preferences/<memory-id>.md --content-file <reviewed-note.md> --reviewed-personal --capability P2
+~~~
 
-Creating a continuity context is an explicit maintainer operation, never a hook
-side effect. `scripts/create_continuity.py` requires a matching active project,
-the current index hash and `--rebase-index` approval when entries already exist.
-It retains recovery bytes, locks existing contexts, and rebases only technical
-index fields; existing project bytes and semantic generations stay unchanged.
+已有 note 修改统一走 proposal；CLI 和 Obsidian 卡片调用同一个 apply handler：
 
-The Obsidian adapter uses the configured local vault and writes only the
-`Mei Memory` namespace. The initializer creates the local vault; synchronization
-does not change `.obsidian`:
+~~~powershell
+python scripts/memory.py propose --root memory/markdown --target-type personal_markdown --target <relative-note-path> --content-file <proposed-note.md> --scope <scope> --source "human review" --reason "具体原因"
+python scripts/review_proposals.py preview --proposal-id <proposal-id>
+python scripts/review_proposals.py status --proposal-id <proposal-id>
+python scripts/memory.py apply <proposal-id> --root memory/markdown --confirm --capability P3
+~~~
 
-```text
+Obsidian checkbox 只表达 approval intent，不能单独授权。apply 会再次检查
+target base hash 和 approved content hash，成功后重建 index 并写 audit。
+
+### Relations
+
+~~~powershell
+python scripts/memory.py relations add <memory-a> <memory-b> --type related --capability P3
+python scripts/memory.py relations add <new-id> <old-id> --type supersedes --capability P3
+python scripts/memory.py relations remove <memory-a> <memory-b> --type related --capability P3
+python scripts/memory.py relations check --root memory/markdown
+python scripts/memory.py relations repair --root memory/markdown --proposal
+~~~
+
+check 只读检查 dangling target、missing reciprocal、duplicate edge 和非法 type。
+允许的 typed inverse 是 supersedes/superseded_by、depends_on/dependency_of、
+supports/supported_by、contradicts/contradicted_by。
+
+### Migration
+
+~~~powershell
+python scripts/migrate_memory.py plan --root memory/markdown
+python scripts/migrate_memory.py migrate --root memory/markdown
+python scripts/migrate_memory.py verify --root memory/markdown
+python scripts/migrate_memory.py rollback --root memory/markdown
+~~~
+
+迁移范围是 memory/candidates/、memory/canonical/、memory/archive/；不处理
+memory/continuity/、trajectories/、memory/episodic/ 或 eval fixtures。
+manifest 在 memory/migration/manifest.yaml，报告在 memory/migration/reports/。
+migrate 可重复执行且不覆盖人工修改；正式生产迁移保留 maintainer 人工验收。
+
+## Configuration and Obsidian
+
+机器配置只放在 Git-ignored 的 local/paths.toml，公共模板是
+local/paths.example.toml。关键字段：
+
+| 字段 | 用途 |
+| --- | --- |
+| paths.mei_root | 当前 Mei checkout。 |
+| paths.memory_root | runtime canonical root，默认 memory/markdown。 |
+| paths.skills_root | 用户 Codex skills 目录。 |
+| paths.obsidian_vault | 直接指向 memory/markdown。 |
+| host.memory_injection | host memory 注入开关。 |
+
+~~~powershell
 python scripts/sync_obsidian.py check --memory-root memory/markdown
 python scripts/sync_obsidian.py sync --memory-root memory/markdown --source-generation manual
 python scripts/check_obsidian.py --memory-root memory/markdown
-```
+python scripts/sync_obsidian.py uri --memory-root memory/markdown --note views/<memory-id>.md
+~~~
 
-`sync_obsidian.py uri --note views/<memory-id>.md` returns a validated,
-encoded open-only URI; it does not launch Obsidian or grant write authority.
-`sync_obsidian.py import-inbox --note <filename.md> --reviewed-personal` imports
-one low-risk reviewed capture through the same writer, retaining source bytes
-and their locator/hash. Governed captures are referred to the existing
-one-task completion/Curator bridge, not automatically promoted.
+.obsidian/ 只提供可选模板和 vault 设置。views/、proposal cards、drift 报告是
+投影/审计数据，不是第二份 canonical note。
 
-Install default-on hooks once per host home, without a pilot context, thread or
-home restriction; use the hook envelope's workspace and unique active context.
-Do not install duplicate project handlers. Review/trust each host's exact
-definitions in its native interface. Only after backup, native trust and actual
-profile-boundary tests should native host memory reading/generation be disabled.
-Test the installed command string through the actual host shell, not just a
-Python argv list or `cmd.exe`: PowerShell needs `&` before a quoted executable.
-Keep host homes, authentication and runtime stores in place. The personal and
-context writer profiles must start from `:read-only` and grant only their named
-memory/context directory; inheriting workspace writes is not narrow isolation.
+## Storage and recovery
 
-Use `mei-project` for ordinary external project work, not with Mei as the
-writable workspace itself: equal-path write grants outrank read grants. Mei's
-own project default remains `:read-only`, with maintenance explicitly selected.
-Configuration, command-level probes, real GUI/TUI events and human Obsidian
-Backlinks/Graph acceptance remain separate verification claims.
+| 路径 | 角色 | 默认 retrieval |
+| --- | --- | --- |
+| memory/markdown/MEMORY.md | bounded generated index | 入口 |
+| memory/markdown/{profile,preferences,domain,procedural,project,feedback} | canonical notes | active 且已验证 |
+| memory/markdown/proposals/ | 未批准 proposal | 否 |
+| memory/legacy-json/ | byte-preserved evidence | 否，只读 |
+| memory/continuity/、trajectories/、memory/episodic/ | 独立技术协议 | 不迁移 |
+| registry/memory.yaml | generated registry | 需从 canonical 重建 |
 
-The default configuration needs no path override. To use a different vault,
-set `MEI_OBSIDIAN_VAULT` before `python scripts/init_local.py`, or edit
-`obsidian_vault` and `obsidian_memory_dir` in the Git-ignored `local/paths.toml`.
-Projection drift is preserved for review and does not block continuity or
-compact.
+不要直接编辑 generated index；先修 canonical note，再运行：
 
-To connect a project, configure that project's local agent instructions to locate **your own Mei checkout**, read `registry/memory.yaml` when reviewed JSON memory is relevant, and use `scripts/memory_markdown.py read` for bounded Markdown memory retrieval. Give the project write access only to `trajectories/inbox/`; the Markdown writer remains a separate bounded operation. Reserve candidate and canonical writes for a separate maintainer session. Configure the example profile names `mei-project` and `mei-maintainer` in your own Codex permissions if you use them; the initializer does not grant access. See the [permissions policy](policies/permissions-policy.md) and [trajectory policy](policies/trajectory-policy.md).
-
-After an eligible project task finishes, ask for an export explicitly. A reusable instruction is:
-
-> Review the completed task against Mei's trajectory policy. If eligible, create one concise, redacted JSON trajectory in this checkout's `trajectories/inbox/`, following `schemas/trajectory.schema.json`. Include the result, verification evidence, corrections, and possible lessons. Do not include full chat logs, credentials, or private source text. Do not edit candidates or canonical memory. If the task is ineligible, explain why and do not write a file.
-
-Then start a **separate Curator task** with maintainer permissions. For one inbox file, run:
-
-```text
-python scripts/validate_trajectory.py trajectories/inbox/<id>.json
-python scripts/normalize_trajectory.py trajectories/inbox/<id>.json
-```
-
-Review the normalized record and its sources, write a scoped candidate, and apply the [promotion policy](policies/promotion-policy.md). After a final decision, archive that reviewed trajectory and its normalized copy, then run:
-
-```text
-python scripts/archive_trajectory.py trajectories/inbox/<id>.json --decision promoted --reason "Reviewed evidence and promoted scoped memory"
+~~~powershell
 python scripts/rebuild_registry.py
+python scripts/memory.py doctor --root memory/markdown
 python scripts/validate_repository.py
-```
+~~~
 
-For a rejection, use `--decision rejected` with the actual review reason. The archive command requires canonical provenance for promotion and rejects a rejection if canonical memory cites the trajectory. Previously finalized normalized copies can be moved one at a time with `python scripts/archive_trajectory.py trajectories/normalized/<id>.json --normalized-only`. These commands support a human-owned workflow; they do not perform promotion on their own.
+## Testing and verification
+
+~~~powershell
+python -m unittest discover -s tests -v
+python scripts/validate_repository.py
+python scripts/check_public_git.py
+git diff --check
+~~~
+
+覆盖 YAML duplicate-key rejection、v0.2 schema、Markdown 读写/检索、migration
+idempotency/verify/rollback、legacy exclusion、proposal stale/approval/apply、
+P1/P2/P3、双向关系、direct-root Obsidian，以及 continuity/trajectory/episodic
+不受迁移影响。
+
+Archify 校验、交付、浏览器证据：
+
+~~~powershell
+Push-Location $env:USERPROFILE\.agents\skills\engineering\archify
+node bin/archify.mjs validate workflow "S:\Agent\Mei\docs\architecture\memory-v2.workflow.json" --quality standard --json
+node bin/archify.mjs deliver workflow "S:\Agent\Mei\docs\architecture\memory-v2.workflow.json" "S:\Agent\Mei\docs\architecture\memory-v2.workflow.html" --quality standard --json
+Pop-Location
+node scripts/light_architecture.mjs
+node scripts/light_architecture.mjs --check
+Push-Location $env:USERPROFILE\.agents\skills\engineering\archify
+node bin/archify.mjs visual-check "S:\Agent\Mei\docs\architecture\memory-v2.workflow.html" --json
+Pop-Location
+~~~
+
+validate/deliver 检查 SVG、路由、交叉、关系走廊、边界和 composition；
+visual-check 另外检查真实 Chrome containment、viewer chrome 和截图。Chrome
+DevTools 启动失败时保留 receipt 并报告环境未完成，不能把 delivery receipt
+当成浏览器或人工视觉验收。
+
+### Light-only artifact
+
+最终只保留 Light 文件，不保留 dark artifact 或其他尺寸：
+
+~~~text
+docs/architecture/memory-v2.workflow.json
+docs/architecture/memory-v2.workflow.html
+docs/architecture/memory-v2.workflow.svg
+~~~
+
+HTML/SVG 应带 data-frag-archify-light="true" marker、Light theme、单一
+2048×1320 viewBox，并隐藏主题切换入口。Archify 按 MIT license 分发，但不是
+Mei runtime dependency。
+
+## Capability boundaries
+
+P1/P2/P3 是能力契约，不等于文件系统管理员权限：
+
+| 能力 | P1 | P2 | P3 |
+| --- | ---: | ---: | ---: |
+| 读取 active Markdown、搜索、关系遍历 | ✓ | ✓ | ✓ |
+| 生成 proposal/draft | ✓ | ✓ | ✓ |
+| 新建低风险 note | - | ✓ | ✓ |
+| 修改已有 note | - | - | explicit approval |
+| profile/domain/procedural、关系、归档/覆盖/删除 | - | proposal | approval 后 |
+| schema/policy/permission | - | - | - |
+
+普通项目使用 mei-project：Mei 只读，最多写一个合规的 trajectories/inbox 轨迹。
+migration、registry rebuild 和 canonical 修改使用明确范围的 mei-maintainer；
+session 名称和 README 都不是 ACL 证明。
 
 ## Repository layout
 
-| Path | Purpose |
-| --- | --- |
-| [`registry/`](registry/) | Memory index and personal skill inventory |
-| [`memory/`](memory/) | Markdown personal memory, continuity state, candidate, reviewed, and archived records |
-| [`trajectories/`](trajectories/) | Inbox and active normalized records; finalized source and normalized records under archive; processed and rejected folders are legacy locations |
-| [`schemas/`](schemas/) | JSON Schemas for trajectories, memories, and skill metadata |
-| [`scripts/`](scripts/) | Validation, normalization, and registry rebuild commands |
-| [`policies/`](policies/) | Five reviewed general policies for capture, promotion, permissions, memory, and skills |
-| [`evals/`](evals/) and [`tests/`](tests/) | Acceptance evidence and synthetic checks |
+~~~text
+memory/markdown/       canonical Markdown/YAML + direct-root Obsidian vault
+memory/legacy-json/    byte-preserved legacy evidence
+memory/continuity/     continuity technical protocol
+memory/migration/      manifest and reports
+registry/              generated indexes and public examples
+schemas/               note, proposal, trajectory and continuity schemas
+scripts/               unified CLI, migration, relation, sync and validation
+policies/              memory, promotion, permission and project policies
+docs/architecture/     current Light flowchart artifacts
+tests/                 offline regression and integration tests
+~~~
 
-## Publication boundary
-
-The [`.gitignore`](.gitignore) uses a public allowlist. The six reviewed Archify diagram files linked above are included alongside the root README and version, empty folder placeholders, reviewed base scripts, schemas, synthetic examples, configuration templates, and five named policies. Specific files under `memory/`, `skills/`, and `trajectories/` remain local. Plans, phase receipts, research notes, and other diagrams under `docs/` also remain local. Local configuration, generated registries (including `registry/continuity.yaml`), continuity records, browser evidence, reports, logs, and new policy files are excluded. Run `python scripts/check_public_git.py` before staging and again after staging, then inspect the staged diff for private text. A forced `git add -f` can bypass ignore rules, and ignoring an already tracked file does not remove it from Git history. No license has been selected yet. Active personal Codex skills live outside this repository. The user performs commits and pushes manually; each change handoff includes a proposed English commit message.
+具体 memory、continuity、trajectory、logs、host paths 和本机 Obsidian 状态默认不
+进入公共 Git。不要批量删除历史记录；归档或 rollback 必须由 manifest、hash 和
+audit receipt 限定范围。

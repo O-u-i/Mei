@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Mei review proposal v0.1.0",
+  "title": "Mei review proposal v0.2.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,7 @@
     "preview", "approval", "receipt", "history", "created_at", "updated_at"
   ],
   "properties": {
-    "schema_version": {"const": "v0.1.0"},
+    "schema_version": {"const": "v0.2.0"},
     "proposal_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
     "status": {"enum": ["draft", "previewed", "stale", "approved", "applied", "rejected", "failed"]},
     "target_type": {"enum": ["personal_markdown", "governed_json"]},
@@ -49,9 +49,9 @@
       "type": ["object", "null"], "additionalProperties": false,
       "required": ["approved_content_sha256", "approved_at", "explicit"],
       "properties": {
-        "approved_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "approved_at": {"type": "string", "format": "date-time"},
-        "explicit": {"const": true}
+        "approved_content_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "approved_at": {"type": ["string", "null"], "format": "date-time"},
+        "explicit": {"type": "boolean"}
       }
     },
     "receipt": {

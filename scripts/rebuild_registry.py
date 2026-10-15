@@ -8,20 +8,15 @@ from pathlib import Path
 import yaml
 
 from _common import ROOT, assert_unique_ids, check_private_content, read_json, validate_schema, version
+from memory_markdown import list_notes
 
 
 def expected_registry(root: Path = ROOT) -> dict:
     records = []
-    base = root / "memory" / "canonical"
-    for path in sorted(base.glob("*/*.json")):
-        item = read_json(path)
-        validate_schema(item, "memory.schema.json", root)
-        check_private_content(item)
-        if item["status"] != "canonical" or item["verified_at"] is None:
-            raise ValueError(f"{path}: canonical record must be verified")
-        if item["category"] != path.parent.name or item["id"] != path.stem:
-            raise ValueError(f"{path}: category or filename mismatch")
-        records.append({"id": item["id"], "category": item["category"], "scope": item["scope"], "path": path.relative_to(root).as_posix()})
+    for item in list_notes(root / "memory" / "markdown", schema_root=root):
+        if item["status"] != "active" or item.get("review_required"):
+            continue
+        records.append({"id": item["memory_id"], "category": item["category"], "scope": item["scope"], "path": "memory/markdown/" + item["path"]})
     assert_unique_ids(records, "memory")
     return {"version": version(root), "generated_by": "scripts/rebuild_registry.py", "records": records}
 

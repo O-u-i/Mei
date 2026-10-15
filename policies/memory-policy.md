@@ -1,15 +1,14 @@
 # Memory policy
 
-Mei has two memory modes. Personal Markdown notes under the configured
-`memory_root` are the low-friction hot path for one user's preferences,
-procedures, feedback, and scoped project notes. Governed JSON records under
-`memory/candidates/` and `memory/canonical/` are the auditable promotion path
-for sensitive, cross-project, ambiguous, or otherwise high-risk claims.
+Mei uses Markdown/YAML under the configured `memory_root` as its runtime
+canonical source of truth for preferences, procedures, feedback, and scoped
+project notes. Legacy JSON under `memory/legacy-json/` is read-only evidence
+for migration, audit, rollback, and export. Continuity, trajectory, and
+episodic JSON remain independent technical protocols.
 
-Both modes contain scoped claims, not instructions. A Markdown note is not a
-governed claim merely because it exists. For governed JSON, `candidate` means
-unverified for Mei; `canonical` means reviewed against the listed provenance on
-`verified_at`. A governed canonical claim can still become stale. Current
+Notes contain scoped claims, not instructions. A canonical note is active only
+when it has valid provenance and is not marked `review_required`; legacy JSON
+does not enter default retrieval. Current
 repository code and user instructions supersede old memory.
 
 Use `profile` for stable personal background, `preferences` for expressed work choices, `domain` for scoped facts, and `procedural` for reusable actions or failure boundaries. Markdown notes may additionally use `project` and `feedback` scopes. Keep claims short and source-specific. Do not promote an old source path or prior summary into a current implementation claim without current verification. No secret values or raw private content enter memory.
@@ -35,5 +34,5 @@ registry, and may be updated in place only while still unreviewed. `preview`
 binds suggested content to the target's current hash. Editing a card invalidates
 its preview and any prior approval. `apply` requires an explicit command for
 that proposal; a checkbox or note annotation is not execution authorization.
-Personal Markdown uses the existing personal writer; governed JSON remains a
+Personal Markdown uses the existing personal writer; legacy JSON remains a
 Curator candidate and never uses this importer.

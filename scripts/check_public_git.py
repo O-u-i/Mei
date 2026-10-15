@@ -21,6 +21,9 @@ PUBLIC_FILES = frozenset(
         "docs/architecture/memory-promotion.workflow.json",
         "docs/architecture/memory-promotion.html",
         "docs/architecture/memory-promotion.svg",
+        "docs/architecture/memory-v2.workflow.json",
+        "docs/architecture/memory-v2.workflow.html",
+        "docs/architecture/memory-v2.workflow.svg",
         "evals/cases/synthetic-task.json",
         "local/paths.example.toml",
         "policies/memory-policy.md",
@@ -54,6 +57,10 @@ PUBLIC_FILES = frozenset(
         "scripts/sync_obsidian.py",
         "scripts/check_obsidian.py",
         "scripts/migrate_codex_memory.py",
+        "scripts/migrate_memory.py",
+        "scripts/relations.py",
+        "scripts/memory.py",
+        "scripts/light_architecture.mjs",
         "scripts/review_proposals.py",
         "scripts/continuity_handoff.py",
         "scripts/init_local.py",
@@ -72,6 +79,7 @@ PUBLIC_FILES = frozenset(
         "tests/test_obsidian.py",
         "tests/test_migrate_codex_memory.py",
         "tests/test_review_proposals.py",
+        "tests/test_v2_memory.py",
         "tests/test_continuity_handoff.py",
     }
 )

@@ -72,9 +72,9 @@ class V0ContractTests(unittest.TestCase):
                 local_config = tomllib.load(stream)
             self.assertEqual(
                 Path(local_config["paths"]["obsidian_vault"]).resolve(),
-                (root / "obsidian-vault").resolve(),
+                (root / "memory" / "markdown").resolve(),
             )
-            self.assertTrue((root / "obsidian-vault" / ".obsidian").is_dir())
+            self.assertTrue((root / "memory" / "markdown" / ".obsidian").is_dir())
             current_version = (root / "VERSION").read_text(encoding="utf-8").strip()
             local_paths = root / "local" / "paths.toml"
             old_skills_root = json.dumps(str(root / "codex" / "skills"))

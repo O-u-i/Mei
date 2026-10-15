@@ -162,6 +162,24 @@ def parse_note(raw: str, source: Path, root: Path = ROOT) -> dict[str, Any]:
     if len(raw.encode("utf-8")) > MAX_NOTE_BYTES:
         raise MemoryError(f"{source}: note exceeds {MAX_NOTE_BYTES} byte hard cap")
     frontmatter, body = _split_note(raw, source)
+    # Compatibility read: v0.1 notes are upgraded in memory with explicit, safe defaults.
+    if frontmatter.get("schema_version") == "v0.1.0":
+        frontmatter = {
+            **frontmatter,
+            "schema_version": "v0.2.0",
+            "source_format": frontmatter.get("source_format", "markdown"),
+            "provenance": frontmatter.get("provenance", [{"source": frontmatter.get("source", "legacy"), "locator": str(source), "evidence_type": "prior_memory", "verified_at": None}]),
+            "review_due_at": frontmatter.get("review_due_at"),
+            "review_triggers": frontmatter.get("review_triggers", []),
+            "references": frontmatter.get("references", []),
+            "conflicts": frontmatter.get("conflicts", []),
+            "related": frontmatter.get("related", []),
+            "relations": frontmatter.get("relations", []),
+            "updated_at": frontmatter.get("updated_at", "1970-01-01T00:00:00Z"),
+            "migrated_from": frontmatter.get("migrated_from"),
+            "migrated_at": frontmatter.get("migrated_at"),
+            "review_required": True,
+        }
     _validate_frontmatter(frontmatter, source, root)
     _assert_private(raw, source)
     note = dict(frontmatter)
@@ -242,7 +260,7 @@ def list_notes(root: str | Path, *, schema_root: str | Path | None = None) -> li
         raise MemoryError(f"{memory_root}: memory root is missing")
     notes: list[dict[str, Any]] = []
     for path in sorted(memory_root.glob("*/*.md")):
-        if path.parent.name == "archive":
+        if path.parent.name in {"archive", "views", "inbox", "review"}:
             continue  # Evidence archives are deliberately outside active recall.
         notes.append(read_note(memory_root, path.relative_to(memory_root).as_posix(), schema_root=schema_root))
     ids = [note["memory_id"] for note in notes]
@@ -255,7 +273,11 @@ def read_memory(root: str | Path, relevant_ids: set[str] | None = None, *, schem
     index = read_index(root)
     memory_root = _memory_root(root)
     if relevant_ids is None:
-        notes = [note for note in list_notes(memory_root, schema_root=schema_root) if note["status"] == "active"]
+        # Notes awaiting provenance review are evidence, not default context.
+        notes = [
+            note for note in list_notes(memory_root, schema_root=schema_root)
+            if note["status"] == "active" and not note.get("review_required", False)
+        ]
     else:
         notes = []
         for memory_id in sorted(relevant_ids):
