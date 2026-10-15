@@ -28,6 +28,7 @@
 !/schemas/continuity-checkpointer.schema.json
 !/schemas/continuity-index.schema.json
 !/schemas/memory-note.schema.json
+!/schemas/memory-proposal.schema.json
 !/scripts/
 /scripts/**
 !/scripts/_common.py
@@ -49,6 +50,8 @@
 !/scripts/sync_obsidian.py
 !/scripts/check_obsidian.py
 !/scripts/migrate_codex_memory.py
+!/scripts/review_proposals.py
+!/scripts/continuity_handoff.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -80,6 +83,8 @@
 !/tests/test_memory_markdown.py
 !/tests/test_obsidian.py
 !/tests/test_migrate_codex_memory.py
+!/tests/test_review_proposals.py
+!/tests/test_continuity_handoff.py
 !/evals/
 !/evals/**/
 /evals/**

@@ -31,3 +31,11 @@ classified Markdown source files through `codex_memory_source_gui` and
 These are Codex command/filesystem boundaries. Verify each host's effective boundaries separately before assuming equivalent enforcement. Approvals, prompts, browser/connectors, and escalated operations have separate controls. `AGENTS.md` and session naming are behavior guidance, not filesystem isolation. Select the intended Codex mode explicitly, confirm the workspace and paths in a fresh session, and describe only enforcement that has been verified. Keep machine-specific verification evidence local.
 
 Machine-specific roots and migration state belong in Git-ignored `local/paths.toml` and `local/pi-permissions-migration.md`. Follow the repository rule against batch deletion; remove only one explicit file per action when necessary.
+
+Continuity assistance may write only the selected context and, when a
+separately configured draft writer is selected, the local `memory/proposals/`
+namespace plus its generated Obsidian review cards. The draft writer cannot
+write `memory/markdown`, `memory/candidates`, `memory/canonical`, registries,
+policies, skills, `.obsidian`, or host runtime state. Keep that profile disabled
+until its real native boundary is tested; the handoff CLI remains an explicit
+manual entry point while it is disabled.

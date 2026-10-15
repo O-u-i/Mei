@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mei review proposal v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "proposal_id", "status", "target_type", "target_locator",
+    "scope", "source", "suggested_content", "suggested_content_sha256",
+    "target_base_sha256", "target_exists", "card_locator", "card_sha256",
+    "preview", "approval", "receipt", "history", "created_at", "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "v0.1.0"},
+    "proposal_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,79}$"},
+    "status": {"enum": ["draft", "previewed", "stale", "approved", "applied", "rejected", "failed"]},
+    "target_type": {"enum": ["personal_markdown", "governed_json"]},
+    "target_locator": {"type": "string", "minLength": 1, "maxLength": 500},
+    "scope": {"type": "string", "minLength": 1, "maxLength": 240},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "locator"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1, "maxLength": 80},
+        "locator": {"type": "string", "minLength": 1, "maxLength": 500},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "reason": {"type": "string", "maxLength": 2000},
+    "relationships": {"type": "array", "uniqueItems": true, "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+    "suggested_content": {"oneOf": [{"type": "string"}, {"type": "object"}]},
+    "suggested_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "target_base_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+    "target_exists": {"type": "boolean"},
+    "card_locator": {"type": "string", "minLength": 1, "maxLength": 500},
+    "card_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+    "preview": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["target_current_sha256", "target_matches_base", "source_status", "unresolved", "diff", "reviewed_content_sha256"],
+      "properties": {
+        "target_current_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "target_matches_base": {"type": "boolean"},
+        "source_status": {"type": "string", "minLength": 1, "maxLength": 40},
+        "unresolved": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 80}},
+        "diff": {"type": "string", "maxLength": 33000},
+        "reviewed_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "approval": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["approved_content_sha256", "approved_at", "explicit"],
+      "properties": {
+        "approved_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "approved_at": {"type": "string", "format": "date-time"},
+        "explicit": {"const": true}
+      }
+    },
+    "receipt": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["applied_at", "target_sha256", "writer", "write_status"],
+      "properties": {
+        "applied_at": {"type": "string", "format": "date-time"},
+        "target_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "writer": {"type": "string", "minLength": 1, "maxLength": 120},
+        "write_status": {"type": "string", "minLength": 1, "maxLength": 40}
+      }
+    },
+    "history": {
+      "type": "array", "maxItems": 50,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["event", "at"],
+        "properties": {
+          "event": {"type": "string", "minLength": 1, "maxLength": 80},
+          "at": {"type": "string", "format": "date-time"},
+          "reason": {"type": "string", "maxLength": 2000},
+          "suggested_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "approved_content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "target_current_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+          "target_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

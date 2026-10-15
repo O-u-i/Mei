@@ -39,6 +39,7 @@ PUBLIC_FILES = frozenset(
         "schemas/continuity-index.schema.json",
         "schemas/continuity-project.schema.json",
         "schemas/memory-note.schema.json",
+        "schemas/memory-proposal.schema.json",
         "scripts/_common.py",
         "scripts/audit_skill.py",
         "scripts/archive_trajectory.py",
@@ -53,6 +54,8 @@ PUBLIC_FILES = frozenset(
         "scripts/sync_obsidian.py",
         "scripts/check_obsidian.py",
         "scripts/migrate_codex_memory.py",
+        "scripts/review_proposals.py",
+        "scripts/continuity_handoff.py",
         "scripts/init_local.py",
         "scripts/normalize_trajectory.py",
         "scripts/rebuild_registry.py",
@@ -68,6 +71,8 @@ PUBLIC_FILES = frozenset(
         "tests/test_memory_markdown.py",
         "tests/test_obsidian.py",
         "tests/test_migrate_codex_memory.py",
+        "tests/test_review_proposals.py",
+        "tests/test_continuity_handoff.py",
     }
 )
 SKELETON_PATH = re.compile(r"^(?:memory|skills|trajectories|evals|logs)/(?:[^/]+/)*\.gitkeep$")

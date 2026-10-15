@@ -24,5 +24,6 @@ continuity_writer = "mei-continuity-writer"
 memory_injection = true
 # Enable only after explicit selection and native permission-boundary tests.
 continuity_lifecycle_profile = false
+continuity_draft_profile = false
 obsidian_projection_profile = false
 # If required by this host, e.g. codex_config_profile_tui = "relay"

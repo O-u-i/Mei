@@ -4,4 +4,11 @@ Active personal skills live under the user's Codex skills directory, for example
 
 Use a skill for a repeatable workflow that changes an agent's decisions. Keep `name` and `description` discriminating, scope instructions to the trigger, and put background details in optional references. A prior memory record is evidence for a proposed skill, not proof that the workflow works. Promotion requires explicit maintainer work, format validation, and a realistic behavior check. No automatic skill mining in the current release.
 
+The continuity, memory, Obsidian, and maintenance skills are thin personal
+entry points over the checked-in Mei scripts. Automatic discovery selects a
+skill but does not grant a writer profile, approve a proposal, promote a
+candidate, or change host configuration. Curator remains a separately invoked
+`mei-maintainer` workflow and binds any application to the exact reviewed
+proposal version and target hash.
+
 For a personal skill update, review one named skill at a time in a maintainer task. Read the installed skill, its relevant source evidence, and the proposed full directory. Check upstream version and license before adopting third-party changes. Use `python scripts/audit_skill.py <skill-id> --proposed-dir <directory>` to inspect file additions, removals, and changes without writing either directory. Decide which changes belong in the skill entrypoint, conditional references, or scripts; keep project-specific details in scoped memory or references. Validate the revised skill and exercise its actual workflow before updating the installed directory and local registry. Record the source, decision, and validation in the handoff; do not treat a candidate folder or registry entry as an automatic installer.

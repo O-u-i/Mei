@@ -28,3 +28,12 @@ Never silently replace a canonical record. When claims conflict, add the other I
 For claims that can change, record concrete `review_triggers` such as a source-file change, version change, or new user decision. Set `review_due_at` only when a time-based check has a reason; it is a reminder for manual review, not an automatic TTL or deletion rule. When a trigger occurs or a review date passes, recheck the cited source before presenting the claim as current. A failed or inconclusive check does not silently rewrite or promote memory.
 
 Use `conflicts` to name the other memory ID or source and describe the incompatible claim; put the evidence and unresolved decision in `notes` and provenance. If evidence establishes that an active canonical claim is no longer valid, a Curator must explicitly retire it from active retrieval, retain a non-overwritten audit record, rebuild the registry, and validate the repository. Do not claim an automatic invalidation or physical deletion mechanism in the current release.
+
+`memory/proposals/` is a local, isolated review namespace. Its JSON and
+Obsidian cards are drafts, excluded from personal-memory reads and the governed
+registry, and may be updated in place only while still unreviewed. `preview`
+binds suggested content to the target's current hash. Editing a card invalidates
+its preview and any prior approval. `apply` requires an explicit command for
+that proposal; a checkbox or note annotation is not execution authorization.
+Personal Markdown uses the existing personal writer; governed JSON remains a
+Curator candidate and never uses this importer.

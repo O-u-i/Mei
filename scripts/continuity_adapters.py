@@ -25,6 +25,7 @@ else:  # Support direct imports when ``scripts`` is on ``sys.path``.
 SUPPORTED_HOSTS = frozenset(("gui", "tui"))
 READ_EVENTS = frozenset(("SessionStart", "PostCompact"))
 WRITE_EVENTS = frozenset(("UserPromptSubmit", "PreCompact"))
+STOP_EVENT = "Stop"
 
 
 def select_context(repo_root: str | Path, *, mei_root: str | Path, remote: str | None = None) -> dict[str, Any]:
@@ -250,14 +251,14 @@ def main(argv: list[str] | None = None) -> int:
             raise ContinuityError("hook envelope must be an object")
         event = envelope["hook_event_name"]
         startup = event in READ_EVENTS
-        automatic = event == "PreCompact" and envelope.get("trigger") != "manual"
+        automatic = (event == "PreCompact" and envelope.get("trigger") != "manual") or event == STOP_EVENT
         workspace = envelope.get("cwd")
         if not isinstance(workspace, str) or not Path(workspace).is_absolute() or not Path(workspace).is_dir():
             raise ContinuityError("hook workspace must be an existing absolute directory")
         args.repo_root = args.repo_root or Path(workspace)
         if Path(envelope["cwd"]).resolve() != args.repo_root.resolve():
             raise ContinuityError("hook workspace differs from selected repository")
-        if event not in {"SessionStart", "UserPromptSubmit", "PreCompact", "PostCompact"}:
+        if event not in {"SessionStart", "UserPromptSubmit", "PreCompact", "PostCompact", STOP_EVENT}:
             raise ContinuityError("unsupported host event")
         if args.context_id:
             selection = {"status": "selected", "context_id": args.context_id}
@@ -306,6 +307,23 @@ def main(argv: list[str] | None = None) -> int:
                 wire = {"continue": True, "hookSpecificOutput": {"hookEventName": event, "additionalContext": content}}
             else:
                 wire = {"continue": True, "systemMessage": "Mei continuity after compact: " + content}
+        elif event == STOP_EVENT:
+            # The Stop hook only asks the current agent to save missing state. It
+            # never reads a transcript, starts a model, or writes a handoff.
+            if envelope.get("stop_hook_active") is True:
+                wire = {"continue": True, "systemMessage": "Mei continuity Stop check already attempted."}
+            elif not context_id:
+                wire = {"continue": True, "systemMessage": "Mei continuity Stop check skipped: no selected context."}
+            else:
+                state = read_context(args.repo_root, context_id, host=host, mei_root=args.mei_root)
+                needs_save = state["status"] in {"dirty", "needs_reconcile", "conflict", "stale"}
+                wire = {
+                    "continue": not needs_save,
+                    "systemMessage": "Mei continuity Stop check: " + json.dumps({"status": state["status"], "needs_save": needs_save}, ensure_ascii=False),
+                }
+                if needs_save:
+                    wire["stopReason"] = "Save the current handoff before ending this task; no background model was started."
+                    wire["meiStopCheck"] = {"attempted": True, "required_action": "save_handoff"}
         else:
             session = envelope.get("session_id")
             if context_id and not args.lifecycle_child and not (args.writer_thread_id or args.codex_home):
@@ -350,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                 wire["stopReason"] = "Explicitly sync the selected Mei context before manual compact."
     except (ContinuityError, OSError, ValueError, KeyError, TypeError):
         # Do not echo unvalidated input or record contents into host diagnostics.
-        print(json.dumps({"continue": automatic or startup or event == "UserPromptSubmit", "systemMessage": "Mei continuity unavailable; inspect the selected pair."}))
+        print(json.dumps({"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": "Mei continuity unavailable; inspect the selected pair."}))
         # Keep the response parseable by the native host. Automatic failures
         # remain fail-open; manual failures stop through continue:false.
         return 0

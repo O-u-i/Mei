@@ -14,6 +14,7 @@ from _common import ROOT, assert_unique_ids, check_private_content, read_json, s
 from normalize_trajectory import normalization_payload
 from rebuild_registry import expected_registry
 from memory_markdown import doctor as markdown_doctor
+from review_proposals import validate_proposal_store
 
 
 def check_local_paths(root: Path) -> dict[str, Path]:
@@ -133,6 +134,7 @@ def validate_repository(root: Path = ROOT) -> None:
             if not path.is_relative_to(local_paths["skills_root"]) or not path.is_file() or f"name: {skill['id']}" not in path.read_text(encoding="utf-8"):
                 raise ValueError(f"active skill missing, outside skills_root, or name mismatch: {path}")
     assert_unique_ids(skills, "skill")
+    validate_proposal_store(root)
 
 
 def main() -> int:

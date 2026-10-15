@@ -124,6 +124,22 @@ class TestHostEvents(unittest.TestCase):
         self.assertIn("Run the selected validation checks.", json.loads(restored.stdout)["systemMessage"])
         self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), debt)
 
+    def test_stop_requests_one_current_agent_save_and_does_not_loop_or_write(self):
+        from continuity_adapters import read_tui_context
+
+        fixture = self.make_fixture()
+        self.assertTrue(json.loads(self.host_event(fixture, "UserPromptSubmit").stdout)["continue"])
+        before = read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        first = self.host_event(fixture, "Stop")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        first_wire = json.loads(first.stdout)
+        self.assertFalse(first_wire["continue"])
+        self.assertTrue(first_wire["meiStopCheck"]["attempted"])
+        self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
+        second = self.host_event(fixture, "Stop", stop_hook_active=True)
+        self.assertTrue(json.loads(second.stdout)["continue"])
+        self.assertNotIn("must-not-read", second.stdout)
+
     def test_readback_witness_cannot_write_the_selected_writers_bookkeeping(self):
         from continuity_adapters import read_tui_context
 
