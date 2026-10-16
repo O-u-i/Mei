@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sys
 import hashlib
+import io
 import json
 import os
 import subprocess
 import unittest
 import uuid
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 from types import SimpleNamespace
 from pathlib import Path
@@ -165,6 +167,105 @@ class TestHostEvents(unittest.TestCase):
         self.assertTrue(json.loads(child.stdout)["suppressOutput"])
         self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
 
+
+
+class TestLifecycleDiagnostics(unittest.TestCase):
+    """Exercise the real parent dispatch, never a native sandbox or writer."""
+
+    def setUp(self):
+        self.root = ROOT / ".tmp" / "host-tests" / uuid.uuid4().hex
+        self.root.mkdir(parents=True)
+        self.native = self.root / "native.exe"
+        self.native.write_bytes(b"mock only")
+        self.config = {
+            "paths": {"codex_cli": str(self.native)},
+            "host": {"continuity_lifecycle_profile": "mei-continuity-writer",
+                     "codex_config_profile_tui": "relay"},
+        }
+        self.secret = "PRIVATE-SYNTHETIC-MARKER"
+
+    def invoke(self, outcome, *, event="PreCompact", trigger="manual", raises=False):
+        from continuity_adapters import main
+
+        envelope = {"hook_event_name": event, "trigger": trigger, "cwd": str(self.root),
+                    "session_id": "fixture-session", "prompt": self.secret,
+                    "transcript_path": self.secret}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        before = {p: p.read_bytes() for p in self.root.iterdir()}
+        with patch("continuity_adapters._local_config", return_value=self.config), \
+                patch("continuity_adapters.subprocess.run", **{
+                    "side_effect" if raises else "return_value": outcome}) as run, \
+                patch("sync_continuity.handle_lifecycle_event") as writer, \
+                patch("continuity_adapters.sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(envelope).encode()))), \
+                patch.dict(os.environ, CODEX_HOME=str(self.root / "tui-home"), PRIVATE_TEST_ENV=self.secret), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            code = main(["--mei-root", str(self.root), "--context-id", "fixture-context", "--host", "tui"])
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertNotIn(self.secret, stdout.getvalue())
+        writer.assert_not_called()
+        self.assertEqual({p: p.read_bytes() for p in self.root.iterdir()}, before)
+        return json.loads(stdout.getvalue()), run
+
+    def test_failure_stages_are_allowlisted_and_preserve_event_gates(self):
+        denied = PermissionError(13, self.secret, self.secret)
+        denied.winerror = 5
+        cases = [
+            (denied, True, {"stage": "launch", "exception_type": "PermissionError", "errno": 13, "winerror": 5}),
+            (subprocess.TimeoutExpired([self.secret], 10, output=self.secret, stderr=self.secret), True,
+             {"stage": "timeout", "exception_type": "TimeoutExpired"}),
+            (SimpleNamespace(returncode=23, stdout=self.secret, stderr=self.secret), False,
+             {"stage": "exit", "exit_code": 23}),
+            (SimpleNamespace(returncode=0, stdout=self.secret, stderr=self.secret), False,
+             {"stage": "response", "exception_type": "JSONDecodeError"}),
+            (UnicodeDecodeError("utf-8", b"\xff", 0, 1, self.secret), True,
+             {"stage": "response", "exception_type": "UnicodeDecodeError"}),
+            (ValueError(self.secret), True, {"stage": "launch", "exception_type": "ValueError"}),
+        ]
+        for outcome, raises, expected in cases:
+            for event, trigger, allow in (("PreCompact", "manual", False),
+                                           ("PreCompact", "auto", True),
+                                           ("UserPromptSubmit", "manual", True)):
+                with self.subTest(diagnostic=expected, event=event, trigger=trigger):
+                    wire, run = self.invoke(outcome, event=event, trigger=trigger, raises=raises)
+                    self.assertEqual(set(wire), {"continue", "systemMessage"})
+                    self.assertEqual(wire["continue"], allow)
+                    prefix = "Mei continuity unavailable; inspect the selected pair. "
+                    self.assertTrue(wire["systemMessage"].startswith(prefix))
+                    diagnostic = json.loads(wire["systemMessage"][len(prefix):])
+                    self.assertEqual(diagnostic, expected)
+                    self.assertEqual(run.call_count, 1)
+
+    def test_invalid_response_shapes_remain_blocked(self):
+        for content in ('[]', '{}', '{"continue":1}', '{"continue":"true"}', 'null'):
+            with self.subTest(content=content):
+                wire, _ = self.invoke(SimpleNamespace(returncode=0, stdout=content, stderr=self.secret))
+                self.assertFalse(wire["continue"])
+                self.assertTrue(wire["systemMessage"].endswith('{"stage": "response"}'))
+
+    def test_unrelated_errors_do_not_expose_exception_details(self):
+        with patch("continuity_adapters._sandboxed_lifecycle", side_effect=ContinuityError(self.secret)):
+            wire, run = self.invoke(None)
+        self.assertEqual(wire, {"continue": False,
+                                "systemMessage": "Mei continuity unavailable; inspect the selected pair."})
+        run.assert_not_called()
+
+    def test_valid_response_and_native_command_contract_are_unchanged(self):
+        for allow in (True, False):
+            expected = {"continue": allow, "systemMessage": "synthetic child response"}
+            wire, run = self.invoke(SimpleNamespace(returncode=0, stdout=json.dumps(expected), stderr=self.secret))
+            self.assertEqual(wire, expected)
+            command = run.call_args.args[0]
+            self.assertEqual(command[:8], [str(self.native), "sandbox", "-P", "mei-continuity-writer",
+                                          "-C", str(self.root), "--profile", "relay"])
+            self.assertIn("--lifecycle-child", command)
+            self.assertEqual(command[-2:], ["--context-id", "fixture-context"])
+            options = run.call_args.kwargs
+            self.assertEqual(options["timeout"], 10)
+            self.assertEqual(options["env"]["CODEX_HOME"], str(self.root / "tui-home"))
+            self.assertEqual(json.loads(options["input"]), {
+                "hook_event_name": "PreCompact", "trigger": "manual", "cwd": str(self.root),
+                "session_id": "fixture-session"})
 
 
 class TestAdapters(unittest.TestCase):

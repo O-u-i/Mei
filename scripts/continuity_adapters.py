@@ -28,6 +28,22 @@ WRITE_EVENTS = frozenset(("UserPromptSubmit", "PreCompact"))
 STOP_EVENT = "Stop"
 
 
+class _LifecycleFailure(ContinuityError):
+    """Only allowlisted metadata may cross the subprocess diagnostic boundary."""
+
+    def __init__(self, stage: str, *, exit_code: int | None = None, exc: Exception | None = None):
+        super().__init__("selected native lifecycle sandbox unavailable")
+        self.diagnostic: dict[str, Any] = {"stage": stage}
+        if exit_code is not None:
+            self.diagnostic["exit_code"] = exit_code
+        if exc is not None:
+            self.diagnostic["exception_type"] = type(exc).__name__
+            for key in ("errno", "winerror"):
+                value = getattr(exc, key, None)
+                if type(value) is int:
+                    self.diagnostic[key] = value
+
+
 def select_context(repo_root: str | Path, *, mei_root: str | Path, remote: str | None = None) -> dict[str, Any]:
     """Pick the one open context for a repository; never create or merge contexts."""
     if __package__:
@@ -169,14 +185,21 @@ def _sandboxed_hook(args: argparse.Namespace, envelope: dict[str, Any], host: st
     try:
         child = subprocess.run(command, input=json.dumps(metadata), capture_output=True, text=True, encoding="utf-8",
                                timeout=10, env=dict(os.environ, CODEX_HOME=str(actual_home), PYTHONDONTWRITEBYTECODE="1"))
-        if child.returncode:
-            raise ContinuityError("selected native lifecycle sandbox failed")
+    except subprocess.TimeoutExpired as exc:
+        raise _LifecycleFailure("timeout", exc=exc) from None
+    except UnicodeError as exc:
+        raise _LifecycleFailure("response", exc=exc) from None
+    except (OSError, ValueError) as exc:
+        raise _LifecycleFailure("launch", exc=exc) from None
+    if child.returncode:
+        raise _LifecycleFailure("exit", exit_code=child.returncode)
+    try:
         wire = json.loads(child.stdout)
-        if not isinstance(wire, dict) or not isinstance(wire.get("continue"), bool):
-            raise ContinuityError("native lifecycle response is invalid")
-        return wire
-    except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
-        raise ContinuityError("selected native lifecycle sandbox unavailable") from exc
+    except (ValueError, TypeError) as exc:
+        raise _LifecycleFailure("response", exc=exc) from None
+    if not isinstance(wire, dict) or not isinstance(wire.get("continue"), bool):
+        raise _LifecycleFailure("response")
+    return wire
 
 
 def _sandboxed_lifecycle(args: argparse.Namespace, envelope: dict[str, Any], host: str, actual_home: Path,
@@ -407,9 +430,12 @@ def main(argv: list[str] | None = None) -> int:
             wire = {"continue": result["allow"], "systemMessage": "Mei continuity: " + json.dumps(result, ensure_ascii=False)}
             if not result["allow"]:
                 wire["stopReason"] = "Explicitly sync the selected Mei context before manual compact."
-    except (ContinuityError, OSError, ValueError, KeyError, TypeError):
+    except (ContinuityError, OSError, ValueError, KeyError, TypeError) as exc:
         # Do not echo unvalidated input or record contents into host diagnostics.
-        print(json.dumps({"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": "Mei continuity unavailable; inspect the selected pair."}))
+        message = "Mei continuity unavailable; inspect the selected pair."
+        if isinstance(exc, _LifecycleFailure):
+            message += " " + json.dumps(exc.diagnostic)
+        print(json.dumps({"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": message}))
         # Keep the response parseable by the native host. Automatic failures
         # remain fail-open; manual failures stop through continue:false.
         return 0
