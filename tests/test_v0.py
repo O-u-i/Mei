@@ -82,6 +82,10 @@ class V0ContractTests(unittest.TestCase):
             new_skills_root = json.dumps(str(root / "agents" / "skills"))
             local_paths.write_text(local_paths.read_text(encoding="utf-8").replace(old_skills_root, new_skills_root), encoding="utf-8")
             validate_repository(root)
+            sidecar = root / "memory/continuity" / ("repo-" + "a" * 32) / "fixture/_hook_diagnostics" / ("b" * 32) / "started.json"
+            sidecar.parent.mkdir(parents=True)
+            sidecar.write_text("Not a protocol record.", encoding="utf-8")
+            validate_repository(root)  # Independent diagnostics must never enter protocol validation/retrieval.
             skills = root / "registry" / "skills.yaml"
             skill_file = root / "agents" / "skills" / "example" / "SKILL.md"
             skill_file.parent.mkdir(parents=True)

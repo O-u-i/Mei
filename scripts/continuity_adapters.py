@@ -11,15 +11,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 if __package__:  # Support package imports from the repository root.
-    from .check_continuity import ContinuityError, load_context
+    from ._common import publish_new_file
+    from .check_continuity import ContinuityError, _assert_no_reparse, _safe_relative_path, load_context
 else:  # Support direct imports when ``scripts`` is on ``sys.path``.
-    from check_continuity import ContinuityError, load_context
+    from _common import publish_new_file
+    from check_continuity import ContinuityError, _assert_no_reparse, _safe_relative_path, load_context
 
 
 SUPPORTED_HOSTS = frozenset(("gui", "tui"))
@@ -209,6 +214,106 @@ def _sandboxed_lifecycle(args: argparse.Namespace, envelope: dict[str, Any], hos
                            child_flag="--lifecycle-child")
 
 
+def _publish_precompact_receipt(path: Path, value: dict[str, Any]) -> None:
+    """Publish bounded metadata atomically, never replace a receipt or protocol file."""
+    raw = (json.dumps(value, allow_nan=False) + "\n").encode("utf-8")
+    if len(raw) > 2048:
+        raise ValueError("diagnostic receipt exceeds its hard cap")
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    _assert_no_reparse(temporary)
+    owned = False
+    try:
+        with temporary.open("xb") as stream:
+            owned = True
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _assert_no_reparse(path)
+        publish_new_file(temporary, path)
+    finally:
+        if owned:
+            temporary.unlink(missing_ok=True)  # Only this invocation's exact temporary file.
+
+
+def _start_precompact_diagnostic(args: argparse.Namespace, envelope: dict[str, Any], host: str,
+                                 actual_home: Path, context_id: str | None) -> tuple[Path, int] | None:
+    """Opt-in, one manual parent invocation per host/repo/context/run binding.
+
+    The exclusive run directory consumes the run-id even if a receipt fails.
+    Absence of a receipt is never proof that a native hook did not run.
+    """
+    try:
+        if envelope.get("hook_event_name") != "PreCompact" or envelope.get("trigger") != "manual" or args.lifecycle_child or args.projection_child:
+            return None
+        config = _local_config(args.mei_root)
+        selected = config.get("host", {}).get("precompact_diagnostics", {})
+        if not isinstance(selected, dict) or selected.get("enabled") is not True:
+            return None
+        if set(selected) != {"enabled", "host", "repo_id", "context_id", "run_id"}:
+            return None
+        run_id = selected["run_id"]
+        if not isinstance(run_id, str) or not re.fullmatch(r"[a-f0-9]{32}", run_id):
+            return None
+        home = config.get("paths", {}).get(f"codex_home_{host}")
+        if selected["host"] != host or selected["context_id"] != context_id or not isinstance(home, str) or not Path(home).is_absolute():
+            return None
+        if Path(home).resolve() != actual_home.resolve():
+            return None
+        state = load_context(args.repo_root, context_id, mei_root=args.mei_root)
+        if state["repo_id"] != selected["repo_id"] or state["context_id"] != selected["context_id"]:
+            return None
+        directory = _safe_relative_path(Path(args.mei_root),
+                                       f'memory/continuity/{state["repo_id"]}/{state["context_id"]}', "context")
+        run = _safe_relative_path(directory, f"_hook_diagnostics/{run_id}", "diagnostic run")
+        run.parent.mkdir(exist_ok=True)
+        _assert_no_reparse(run)
+        run.mkdir()  # Exclusive claim: concurrent/subsequent invocations cannot reuse this run-id.
+        generation = state["checkpointer"]["generation"]
+        _publish_precompact_receipt(run / "started.json", {
+            "event": "PreCompact", "stage": "bound", "time": datetime.now(timezone.utc).isoformat(),
+            "generation": generation,
+        })
+        return run, generation
+    except Exception:
+        return None  # Optional diagnostics never affect the hook's decision or output.
+
+
+def _finish_precompact_diagnostic(receipt: tuple[Path, int] | None, wire: dict[str, Any],
+                                  failure: Exception | None = None) -> None:
+    if receipt is None:
+        return
+    try:
+        run, generation = receipt
+        value: dict[str, Any] = {
+            "event": "PreCompact", "stage": "result", "time": datetime.now(timezone.utc).isoformat(),
+            "generation": generation, "allow": wire["continue"], "reason": "unclassified_response",
+        }
+        if failure is not None:
+            value.update(stage="adapter_failure", reason="unavailable")
+            if isinstance(failure, _LifecycleFailure):
+                value["stage"] = failure.diagnostic["stage"]
+                for key in ("exit_code", "errno", "winerror"):
+                    if type(failure.diagnostic.get(key)) is int:
+                        value[key] = failure.diagnostic[key]
+        else:
+            message = wire.get("systemMessage", "")
+            if isinstance(message, str) and len(message) <= 4096:
+                if message.startswith("Mei continuity: "):
+                    result = json.loads(message[len("Mei continuity: "):])
+                    if isinstance(result, dict) and result.get("event") == "precompact_manual" and result.get("allow") is wire["continue"]:
+                        if isinstance(result.get("reason"), str) and result["reason"] in {"clean", "sync_required", "completed_context", "lock_timeout", "record_failed"}:
+                            value["reason"] = result["reason"]
+                        if type(result.get("generation")) is int and result["generation"] >= 0:
+                            value["generation"] = result["generation"]
+                elif message.startswith("Mei continuity unavailable;"):
+                    value.update(stage="child_unavailable", reason="unavailable")
+                elif message.startswith("Mei continuity (read-only witness): "):
+                    value["reason"] = "read_only_witness"
+        _publish_precompact_receipt(run / "result.json", value)
+    except Exception:
+        pass  # Keep the original allow/block result even if receipt publication fails.
+
+
 def read_context(
     repo_root: str | Path,
     context_id: str,
@@ -303,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     event = None
     automatic = False
     startup = False
+    diagnostic = None
     try:
         raw = sys.stdin.buffer.read(65_537)
         if len(raw) > 65_536:
@@ -331,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise
                 selection = {"status": "context_invalid", "required_action": "explicit_reconcile"}
         context_id = selection.get("context_id")
+        diagnostic = _start_precompact_diagnostic(args, envelope, host, actual_home, context_id)
         projection_failure = None
         direct_vault = event == "PostCompact" and _direct_vault(args.mei_root)
         if event == "PostCompact" and not direct_vault and not args.projection_child:
@@ -393,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
             if context_id and not args.lifecycle_child and not (args.writer_thread_id or args.codex_home):
                 wire = _sandboxed_lifecycle(args, envelope, host, actual_home, context_id)
                 if wire is not None:
+                    _finish_precompact_diagnostic(diagnostic, wire)
                     print(json.dumps(wire, ensure_ascii=False))
                     return 0
             selected_profile = os.environ.get("CODEX_PERMISSION_PROFILE")
@@ -413,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
                 wire = {"continue": allow, "systemMessage": "Mei continuity (read-only witness): " + json.dumps({"status": state["status"], "allow": allow})}
                 if not allow:
                     wire["stopReason"] = "Explicitly sync the selected Mei context before manual compact."
+                _finish_precompact_diagnostic(diagnostic, wire)
                 print(json.dumps(wire, ensure_ascii=False))
                 return 0
             if __package__:
@@ -435,10 +544,13 @@ def main(argv: list[str] | None = None) -> int:
         message = "Mei continuity unavailable; inspect the selected pair."
         if isinstance(exc, _LifecycleFailure):
             message += " " + json.dumps(exc.diagnostic)
-        print(json.dumps({"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": message}))
+        wire = {"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": message}
+        _finish_precompact_diagnostic(diagnostic, wire, exc)
+        print(json.dumps(wire))
         # Keep the response parseable by the native host. Automatic failures
         # remain fail-open; manual failures stop through continue:false.
         return 0
+    _finish_precompact_diagnostic(diagnostic, wire)
     print(json.dumps(wire, ensure_ascii=False))
     # A valid hook response is controlled by its JSON envelope. In particular,
     # PreCompact uses continue:false to stop compaction; a non-zero exit causes
