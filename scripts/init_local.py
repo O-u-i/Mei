@@ -1,10 +1,13 @@
-"""Create missing, Git-ignored files and the local Obsidian vault for one Mei installation."""
+"""Create missing local files and the direct canonical vault; never register an app vault."""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
+
+from memory_markdown import initialize_memory
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,17 +34,16 @@ def initialize(root: Path = ROOT, codex_home: Path | None = None) -> list[Path]:
         "codex_home_tui": codex_home_tui,
         "codex_memory_source_gui": codex_home / "memories",
         "codex_memory_source_tui": codex_home_tui / "memories",
-        "skills_root": codex_home / "skills",
+        "skills_root": Path.home() / ".agents" / "skills",
         "inbox": root / "trajectories" / "inbox",
     }
     obsidian_vault = Path(
         os.environ.get("MEI_OBSIDIAN_VAULT", str(root / "memory" / "markdown"))
     ).expanduser().resolve()
-    obsidian_vault.mkdir(parents=True, exist_ok=True)
+    if obsidian_vault != paths["memory_root"] or os.environ.get("MEI_OBSIDIAN_MEMORY_DIR", ""):
+        raise ValueError("Mei v2 initialization requires the memory/markdown direct-root vault and an empty namespace")
+    initialize_memory(paths["memory_root"])
     (obsidian_vault / ".obsidian").mkdir(exist_ok=True)
-    for category in ("profile", "preferences", "domain", "procedural", "project", "feedback"):
-        (obsidian_vault / category).mkdir(exist_ok=True)
-    (obsidian_vault / "MEMORY.md").touch(exist_ok=True)
 
     local_config = "[paths]\n"
     local_config += "".join(f"{key} = {json.dumps(str(value), ensure_ascii=False)}\n" for key, value in paths.items())
@@ -59,14 +61,19 @@ def initialize(root: Path = ROOT, codex_home: Path | None = None) -> list[Path]:
     return [target for target, content in sources if write_if_missing(target, content)]
 
 
-def main() -> None:
-    created = initialize()
+def main() -> int:
+    try:
+        created = initialize()
+    except (OSError, ValueError) as exc:
+        print(f"initialization failed: {exc}", file=sys.stderr)
+        return 1
     if created:
         for path in created:
             print(f"created: {path.relative_to(ROOT)}")
     else:
         print("local files already present; no changes")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -637,8 +637,18 @@ def preview_proposal(proposal_id: str, *, mei_root: str | Path | None = None, va
 
 def status_proposals(proposal_id: str | None = None, *, mei_root: str | Path | None = None) -> dict[str, Any]:
     root = _root(mei_root)
-    directory = _proposal_dir(root, create=proposal_id is None)
-    paths = [_proposal_path(root, proposal_id)] if proposal_id else sorted(directory.glob("*.md"))
+    directory = root / "memory" / "proposals"
+    _assert_no_reparse(directory)
+    try:
+        directory.stat()
+    except FileNotFoundError:
+        if proposal_id is None:
+            return {"status": "ok", "proposals": []}
+    directory = _proposal_dir(root)
+    # Unlike glob, iterdir propagates directory permission errors.
+    paths = [_proposal_path(root, proposal_id)] if proposal_id else sorted(
+        path for path in directory.iterdir() if path.match("*.md")
+    )
     entries = []
     for path in paths:
         proposal = _read_proposal(path, root)

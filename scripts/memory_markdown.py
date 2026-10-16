@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-from _common import ROOT, SECRET_PATTERNS
+from _common import ROOT, SECRET_PATTERNS, publish_new_file
 
 MEMORY_SCHEMA = "memory-note.schema.json"
 INDEX_NAME = "MEMORY.md"
@@ -354,7 +354,7 @@ def _atomic_write(path: Path, raw: bytes, *, create_only: bool = False) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         if create_only:
-            os.link(temporary, path)
+            publish_new_file(temporary, path)
         else:
             os.replace(temporary, path)
     finally:

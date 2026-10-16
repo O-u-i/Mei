@@ -1,6 +1,7 @@
 """Focused checks for the V0 record and provenance contract."""
 
 import json
+import os
 import sys
 import unittest
 import shutil
@@ -8,6 +9,7 @@ import uuid
 import tomllib
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -73,9 +75,10 @@ class V0ContractTests(unittest.TestCase):
                 (root / "memory" / "markdown").resolve(),
             )
             self.assertTrue((root / "memory" / "markdown" / ".obsidian").is_dir())
+            self.assertEqual(Path(local_config["paths"]["skills_root"]), Path.home() / ".agents" / "skills")
             current_version = (root / "VERSION").read_text(encoding="utf-8").strip()
             local_paths = root / "local" / "paths.toml"
-            old_skills_root = json.dumps(str(root / "codex" / "skills"))
+            old_skills_root = json.dumps(local_config["paths"]["skills_root"])
             new_skills_root = json.dumps(str(root / "agents" / "skills"))
             local_paths.write_text(local_paths.read_text(encoding="utf-8").replace(old_skills_root, new_skills_root), encoding="utf-8")
             validate_repository(root)
@@ -93,6 +96,34 @@ class V0ContractTests(unittest.TestCase):
             skills.write_text(json_text({"version": current_version, "skills": [dict(skill, path=str(root / 'missing.md'))]}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "active skill missing"):
                 validate_repository(root)
+
+    def test_initializer_rejects_projection_overrides_before_any_write(self):
+        with fixture_root() as root:
+            for folder in ("registry", ".codex"):
+                (root / folder).mkdir()
+            for source in (ROOT / "registry").glob("*.example.yaml"):
+                shutil.copyfile(source, root / "registry" / source.name)
+            shutil.copyfile(ROOT / ".codex/config.example.toml", root / ".codex/config.example.toml")
+            memory = root / "memory/markdown"
+            with patch.dict(os.environ, {"MEI_OBSIDIAN_VAULT": str(root / "old-vault"), "MEI_OBSIDIAN_MEMORY_DIR": ""}):
+                with self.assertRaisesRegex(ValueError, "direct-root"):
+                    initialize(root, root / "host")
+            self.assertFalse((root / "old-vault").exists())
+            self.assertFalse((root / "local/paths.toml").exists())
+            with patch.dict(os.environ, {"MEI_OBSIDIAN_VAULT": str(memory), "MEI_OBSIDIAN_MEMORY_DIR": "Mei Memory"}):
+                with self.assertRaisesRegex(ValueError, "direct-root"):
+                    initialize(root, root / "host")
+            self.assertFalse(memory.exists())
+            with patch.dict(os.environ, {"MEI_OBSIDIAN_VAULT": str(memory), "MEI_OBSIDIAN_MEMORY_DIR": ""}):
+                initialize(root, root / "host")
+                config = root / "local/paths.toml"
+                before = config.read_bytes()
+                index = memory / "MEMORY.md"
+                self.assertIn("Bounded index", index.read_text(encoding="utf-8"))
+                index_before = index.read_bytes()
+                initialize(root, root / "another-host")
+                self.assertEqual(config.read_bytes(), before)
+                self.assertEqual(index.read_bytes(), index_before)
 
     def test_invalid_json_identifies_the_source_file(self):
         with fixture_root() as root:

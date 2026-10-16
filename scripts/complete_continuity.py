@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _common import ROOT, json_text
+from _common import ROOT, json_text, publish_new_file
 from check_continuity import (
     MAX_CHECKPOINTER_BYTES, MAX_PROJECT_BYTES, ContinuityError, _assert_private,
     _check_context_id, _completion_id, _RETIRED_FIELDS, _safe_relative_path, _read_json, load_context, repo_id_for,
@@ -213,7 +213,7 @@ def export_completed_trajectory(
                     os.fsync(stream.fileno())
                 _safe_relative_path(root, target.relative_to(root).as_posix(), "trajectory")
                 try:
-                    os.link(temporary, target)  # Atomic publication with no overwrite.
+                    publish_new_file(temporary, target)
                 except FileExistsError:
                     return _trajectory_location(root, current) or {"status": "conflict", "required_action": "reread"}
             finally:

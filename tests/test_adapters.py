@@ -133,11 +133,16 @@ class TestHostEvents(unittest.TestCase):
         first = self.host_event(fixture, "Stop")
         self.assertEqual(first.returncode, 0, first.stderr)
         first_wire = json.loads(first.stdout)
-        self.assertFalse(first_wire["continue"])
-        self.assertTrue(first_wire["meiStopCheck"]["attempted"])
+        # Stop continuation uses decision:block, not continue:false (which ends
+        # the turn and suppresses the requested supplemental save).
+        self.assertTrue(first_wire["continue"])
+        self.assertEqual(first_wire["decision"], "block")
+        self.assertIn("Save the current handoff", first_wire["reason"])
+        self.assertNotIn("meiStopCheck", first_wire)
         self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
         second = self.host_event(fixture, "Stop", stop_hook_active=True)
         self.assertTrue(json.loads(second.stdout)["continue"])
+        self.assertNotIn("decision", json.loads(second.stdout))
         self.assertNotIn("must-not-read", second.stdout)
 
     def test_readback_witness_cannot_write_the_selected_writers_bookkeeping(self):

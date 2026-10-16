@@ -58,7 +58,7 @@ python scripts/memory.py doctor --root memory/markdown
 
 Run examples from the Mei checkout root. Initialization, migration and registry rebuilding belong to an explicitly selected maintainer workflow. Capability labels and confirmation flags never grant filesystem permissions.
 
-Review Git-ignored `local/paths.toml`; its portable template is [local/paths.example.toml](local/paths.example.toml). Existing configuration is not silently rewritten to match a new README.
+Review Git-ignored `local/paths.toml`; its portable template is [local/paths.example.toml](local/paths.example.toml). Existing configuration is not silently rewritten to match a new README. New installations default `skills_root` to the personal `$HOME/.agents/skills` directory, independently of either `CODEX_HOME`; verify your actual installed location against the [official Skill discovery paths](https://learn.chatgpt.com/docs/build-skills). Initialization rejects non-direct-root `MEI_OBSIDIAN_VAULT` or nonempty `MEI_OBSIDIAN_MEMORY_DIR` overrides before writing. It prepares files, not Obsidian's application registration.
 
 ### Upgrading an existing installation
 
@@ -212,9 +212,20 @@ The shared adapter supports SessionStart, UserPromptSubmit, PreCompact, PostComp
 - UserPromptSubmit marks dirty state only through the selected native writer and never saves the prompt.
 - Manual compact may stop on dirty state. Automatic compact fails open and records reconciliation debt.
 - PostCompact rereads state. Direct-root Obsidian operation needs no note projection.
-- Stop may ask the current agent for one supplemental handoff, guarded by `stop_hook_active`. It reads no transcript, starts no model and does not complete the task.
+- Stop may ask the current agent for one supplemental handoff, guarded by `stop_hook_active`. This uses `decision: "block"` with a continuation `reason`, **not** `continue: false`, which ends the turn. It reads no transcript, starts no separate model and does not complete the task.
 
-Each host must independently discover and trust the current hook definition. Installing or enabling hooks is not trust; see the [official hook trust documentation](https://developers.openai.com/plugins/build/plugins). Never synthesize trust hashes, silently select broader permissions or bypass review. When hooks cannot run, manual reader/save commands remain available.
+Each host must independently discover and trust the current hook definition. Installing or enabling hooks is not trust; see the [official hook and Stop protocol documentation](https://learn.chatgpt.com/docs/hooks). Never synthesize trust hashes, silently select broader permissions or bypass review. When hooks cannot run, manual reader/save commands remain available.
+
+### Installed-host acceptance is separate from repository tests
+
+Repository validation cannot establish native hook trust, installed Skill semantics, selected filesystem permissions, or a successful interactive launch. Before compact testing:
+
+1. Inspect `/hooks` in **each actual host**. The active definitions must include all five events above, including Stop; avoid duplicate project/user handlers. Historical trust entries do not prove that today's definitions are loaded or trusted.
+2. Inspect the effective named permissions and roots, not just a profile name or environment variable. The actual `skills_root`, selected context, and host runtime must have the access required by that operation. `--profile` selects a config layer; where supported, `-c default_permissions=mei-maintainer` selects the named maintenance default. A denied home/alias/runtime startup is a failed launch, not permission evidence; do not substitute a fresh home or broader profile to make it pass.
+3. Resolve installed Skills through the active local registry and verify both frontmatter identity and instructions. JSON-canonical or generated-`views/` guidance is not the v2 workflow. Run the actual entrypoint as well as its repository handler; either can be stale independently.
+4. In real GUI and TUI sessions, check startup injection, a dirty manual-compact gate, an explicit fresh-snapshot save, and successful `/compact` followed by the same repo/context and current Markdown index. Automatic compact must remain fail-open and expose reconciliation debt. Keep bounded before/after hashes and generations locally, not raw sessions. A synthetic hook envelope, `--host` label, or previous cold start does not satisfy this acceptance.
+
+Host-native memory snapshots are historical evidence, not proof that Mei migration or injection ran. Do not silently enable them, merge host stores, or promote their old instructions to repair a deployment gap.
 
 ### Save through the installed entrypoint
 
@@ -248,6 +259,7 @@ python scripts/migrate_memory.py rollback --root . --target memory/markdown/doma
 - Inputs are JSON under old `memory/{candidates,canonical,archive}/` and canonical-category Markdown needing in-place upgrade. Stable IDs, body text and verifiable provenance are retained.
 - Missing provenance/scope means `review_required`, never invented verification. Candidates become complete unapproved Markdown proposals, not retrievable canonical facts.
 - Preflight rejects duplicate IDs/keys, secrets, invalid fields, unsafe/reparse paths and invalid relations. Invalid preflight does not first write a partial set of notes.
+- If canonical and archive inputs reuse a stable ID, stop for a reviewed historical-version disposition. Do not silently suffix IDs, drop archives or merge claims to force a valid plan. Migration targets this checkout's `memory/markdown`; a different configured subroot is rejected rather than silently migrating into an unselected root.
 - Original JSON bytes are retained in `memory/legacy-json/` without overwriting different evidence. Pre-upgrade Markdown bytes remain in `memory/migration/backups/`.
 - The manifest is `memory/migration/manifest.yaml`; verification reports are in `memory/migration/reports/`. Repeated migration retains ownership/hash receipts and protects human edits.
 - Rollback removes **one** unchanged, manifest-created Markdown file per invocation. It never deletes legacy JSON, technical protocols or pre-existing Markdown. Select each file explicitly; batch deletion is disabled. Modified targets and removals that would create dangling relations return protected; remove relations through approved proposals first. Upgrade backups remain for reviewed manual recovery.
@@ -256,6 +268,8 @@ python scripts/migrate_memory.py rollback --root . --target memory/markdown/doma
 ## Optional Obsidian direct-root workbench
 
 Choose **Open folder as vault → this checkout's `memory/markdown/`**. No nested vault or plugin is required. Optional `.obsidian/` GUI settings are not runtime memory input.
+
+Setting `paths.obsidian_vault`, creating `.obsidian/`, or passing `check_obsidian.py` does **not** register the folder with the desktop app. Confirm the app actually opens this exact folder, not the whole `memory/` protocol store. When retiring an old `obsidian-vault`, first review captures, settings and generated-file ownership; then remove its application registration and obsolete projection selection through an authorized maintenance path. Preserve its files until individually reviewed. A CLI refusing the old path does not prove that the app has stopped using it.
 
 ```powershell
 python scripts/sync_obsidian.py check --memory-root memory/markdown
@@ -266,7 +280,7 @@ python scripts/sync_obsidian.py uri --memory-root memory/markdown --note project
 
 Default direct-root sync/check validates the canonical files without creating `views/`, a second `index.md` or a projection manifest. URI returns a validated open-only link; it does not launch the GUI. Proposal cards live in `review/`; human captures may live in `inbox/`. `sync_obsidian.py import-inbox --note capture.md --reviewed-personal` imports one reviewed low-risk new note. Existing-note changes still require proposals.
 
-Explicit external-vault/namespace projection arguments are legacy compatibility interfaces, not the v2 default. Historical generated files are not automatically deleted or overwritten. Inspect ownership and drift before retiring any such file individually.
+Explicit external-vault/namespace projection arguments are legacy compatibility interfaces, not the v2 default. A canonical vault cannot be another root's projection target or contain a nested projection namespace. Historical generated files are not automatically deleted or overwritten. Inspect ownership and drift before retiring any such file individually.
 
 ## Tools and management
 
@@ -322,7 +336,7 @@ git diff --check
 git diff --cached --check
 ```
 
-Coverage includes reader/writer contracts, duplicate-key/schema checks, capability boundaries, GUI-free proposal lifecycle, paired-write rollback/stale handling, protected migration/rollback, untouched technical protocols, continuity concurrency/completion and host adapters. Synthetic evidence is retained in ignored `.tmp/` rather than batch-deleted. Production data, native hook trust, real cold starts and Obsidian Graph/Backlinks require separate acceptance.
+Coverage includes reader/writer contracts, duplicate-key/schema checks, capability boundaries, GUI-free proposal lifecycle, paired-write rollback/stale handling, protected migration/rollback, untouched technical protocols, continuity concurrency/completion and host adapters. Windows new-file publication uses non-replacing rename rather than requiring hardlink privilege; concurrent targets remain protected. Registry generation and validation use the configured canonical root. Synthetic evidence is retained in ignored `.tmp/` rather than batch-deleted. Report denied native junction/symlink fixture setup and skipped checks explicitly; do not weaken reparse validation to obtain a passing result. Production data, native hook trust, real compact/cold starts and Obsidian Graph/Backlinks require separate acceptance.
 
 ### Reproducible Light diagrams
 

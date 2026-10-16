@@ -357,12 +357,14 @@ def main(argv: list[str] | None = None) -> int:
                 state = read_context(args.repo_root, context_id, host=host, mei_root=args.mei_root)
                 needs_save = state["status"] in {"dirty", "needs_reconcile", "conflict", "stale"}
                 wire = {
-                    "continue": not needs_save,
+                    "continue": True,
                     "systemMessage": "Mei continuity Stop check: " + json.dumps({"status": state["status"], "needs_save": needs_save}, ensure_ascii=False),
                 }
                 if needs_save:
-                    wire["stopReason"] = "Save the current handoff before ending this task; no background model was started."
-                    wire["meiStopCheck"] = {"attempted": True, "required_action": "save_handoff"}
+                    # continue:false ends the turn; decision:block requests one
+                    # continuation of this same agent. stop_hook_active guards it.
+                    wire["decision"] = "block"
+                    wire["reason"] = "Save the current handoff through the installed mei-continuity entrypoint before ending this task; no background model was started."
         else:
             session = envelope.get("session_id")
             if context_id and not args.lifecycle_child and not (args.writer_thread_id or args.codex_home):

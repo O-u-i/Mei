@@ -20,9 +20,9 @@ from typing import Any
 
 import yaml
 
-from _common import ROOT, SECRET_PATTERNS
+from _common import ROOT, SECRET_PATTERNS, publish_new_file
 from memory_markdown import (_assert_no_reparse, _relative, _split_note, CATEGORIES as NOTE_CATEGORIES,
-                             parse_note, render_note, initialize_memory, rebuild_index, list_notes)
+                             parse_note, render_note, initialize_memory, rebuild_index, list_notes, resolve_memory_root)
 
 SCHEMA_VERSION = "v0.2.0"
 MANIFEST_VERSION = "v0.2.0"
@@ -73,7 +73,7 @@ def _atomic(path: Path, raw: bytes, *, expected_sha256: Any = _UNSET) -> None:
             if observed != expected_sha256:
                 raise MigrationError("migration target changed before atomic write")
         if expected_sha256 is None:
-            os.link(tmp, path)  # Atomic create-if-absent: never replace a concurrent file.
+            publish_new_file(tmp, path)  # Never replace a concurrent file.
         else:
             os.replace(tmp, path)
     finally:
@@ -269,6 +269,8 @@ def _root(root: Path) -> Path:
         raise MigrationError("--root expects the Mei checkout, not memory/markdown")
     if not root.is_dir():
         raise MigrationError("Mei migration root is missing")
+    if resolve_memory_root(root) != (root / "memory/markdown").resolve():
+        raise MigrationError("migration requires configured memory_root to be this checkout's memory/markdown; review the selected locator first")
     return root
 
 

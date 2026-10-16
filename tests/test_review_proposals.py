@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from memory_markdown import initialize_memory, read_note, write_note  # noqa: E402
 from review_proposals import (  # noqa: E402
+    ProposalError,
     apply_proposal,
     draft_proposal,
     preview_proposal,
@@ -59,6 +60,73 @@ def setup(root: Path):
 
 
 class ProposalTests(unittest.TestCase):
+    def test_status_missing_store_is_empty_without_creating_paths(self):
+        for memory_exists in (False, True):
+            with self.subTest(memory_exists=memory_exists):
+                root = fixture_root()
+                if memory_exists:
+                    (root / "memory").mkdir()
+                before = sorted(root.rglob("*"))
+                self.assertEqual(status_proposals(mei_root=root), {"status": "ok", "proposals": []})
+                self.assertFalse((root / "memory" / "proposals").exists())
+                self.assertEqual(sorted(root.rglob("*")), before)
+                with self.assertRaises(ProposalError):
+                    status_proposals("missing-proposal", mei_root=root)
+                self.assertEqual(sorted(root.rglob("*")), before)
+
+    def test_status_reads_existing_proposals_without_writes(self):
+        root = fixture_root()
+        _, vault = setup(root)
+        proposal = draft_proposal(
+            "personal_markdown", "memory/markdown/project/status-note.md", note("status-note", "Pending."),
+            scope="synthetic", source="synthetic", mei_root=root, vault_root=vault,
+        )
+        paths = sorted(root.rglob("*"))
+        before = {path: path.read_bytes() for path in paths if path.is_file()}
+        result = status_proposals(mei_root=root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["proposals"]), 1)
+        self.assertEqual(result["proposals"][0]["proposal_id"], proposal["proposal_id"])
+        self.assertEqual(result["proposals"][0]["status"], "draft")
+        self.assertEqual(status_proposals(proposal["proposal_id"], mei_root=root), result)
+        self.assertEqual(sorted(root.rglob("*")), paths)
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+
+    def test_draft_creates_and_uses_store_after_empty_status(self):
+        root = fixture_root()
+        memory, vault = setup(root)
+        self.assertEqual(status_proposals(mei_root=root), {"status": "ok", "proposals": []})
+        directory = root / "memory" / "proposals"
+        self.assertFalse(directory.exists())
+        proposal = draft_proposal(
+            "personal_markdown", "memory/markdown/project/status-note.md", note("status-note", "Approved."),
+            scope="synthetic", source="synthetic", mei_root=root, vault_root=vault,
+        )
+        self.assertTrue((directory / f"{proposal['proposal_id']}.md").is_file())
+        self.assertEqual(preview_proposal(proposal["proposal_id"], mei_root=root, vault_root=vault)["status"], "previewed")
+        self.assertEqual(apply_proposal(proposal["proposal_id"], confirm=True, mei_root=root, vault_root=vault)["status"], "applied")
+        self.assertEqual(read_note(memory, "project/status-note.md")["body"], "Approved.\n")
+
+    def test_status_does_not_hide_directory_permission_errors(self):
+        root = fixture_root()
+        (root / "memory" / "proposals").mkdir(parents=True)
+        with patch.object(Path, "iterdir", side_effect=PermissionError("synthetic directory denial")):
+            with self.assertRaises(PermissionError):
+                status_proposals(mei_root=root)
+
+    def test_status_does_not_hide_corrupt_records_or_invalid_store(self):
+        root = fixture_root()
+        directory = root / "memory" / "proposals"
+        directory.mkdir(parents=True)
+        (directory / "broken-proposal.md").write_text("Not proposal frontmatter.\n", encoding="utf-8")
+        with self.assertRaises(ProposalError):
+            status_proposals(mei_root=root)
+        other = fixture_root()
+        (other / "memory").mkdir()
+        (other / "memory" / "proposals").write_text("Not a directory.\n", encoding="utf-8")
+        with self.assertRaises((ProposalError, OSError)):
+            status_proposals(mei_root=other)
+
     def test_preview_requires_explicit_apply_and_applies_idempotently(self):
         root = fixture_root()
         memory, vault = setup(root)

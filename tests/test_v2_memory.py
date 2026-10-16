@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -336,11 +337,11 @@ class V2MemoryTests(unittest.TestCase):
         self.assertEqual(migrate(root)["status"], "invalid")
         self.assertEqual(card.read_bytes(), changed)
         target = root / "concurrent.md"
-        original_link = os.link
+        from _common import publish_new_file
         def concurrent(source, destination):
             destination.write_bytes(b"Concurrent human file.\n")
-            original_link(source, destination)
-        with patch("migrate_memory.os.link", side_effect=concurrent):
+            publish_new_file(source, destination)
+        with patch("migrate_memory.publish_new_file", side_effect=concurrent):
             with self.assertRaises(FileExistsError): _atomic(target, b"Migration bytes.\n", expected_sha256=None)
         self.assertEqual(target.read_bytes(), b"Concurrent human file.\n")
 
@@ -365,15 +366,23 @@ class V2MemoryTests(unittest.TestCase):
         root, memory = fixture()
         target = memory / "project/one.md"
         concurrent_bytes = note("one", "project", "Concurrent reviewed note.").encode("utf-8")
-        original_link = os.link
+        from _common import publish_new_file
         def concurrent(source, destination):
             destination.write_bytes(concurrent_bytes)
-            original_link(source, destination)
-        with patch("memory_markdown.os.link", side_effect=concurrent):
+            publish_new_file(source, destination)
+        with patch("memory_markdown.publish_new_file", side_effect=concurrent):
             with self.assertRaises(FileExistsError):
                 write_note(memory, "project/one.md", note("one", "project", "Not authorized to replace."))
         self.assertEqual(target.read_bytes(), concurrent_bytes)
         self.assertEqual(read_memory(memory)["index"]["ids"], [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows uses atomic non-replacing rename instead of hard links")
+    def test_windows_creation_works_without_hardlink_privilege(self):
+        root, memory = fixture()
+        with patch("os.link", side_effect=PermissionError("Hard links are not permitted by the managed sandbox")):
+            result = write_note(memory, "project/new-note.md", note("new-note", "project", "No hard-link privilege required."))
+        self.assertEqual(result["status"], "written")
+        self.assertEqual(read_memory(memory)["index"]["ids"], ["new-note"])
 
     def test_direct_root_inbox_cli_uses_selected_root_without_obsidian_config(self):
         root, memory = fixture()
@@ -393,6 +402,78 @@ class V2MemoryTests(unittest.TestCase):
         repeated = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(repeated.returncode, 1)
         self.assertIn("approved proposal", json.loads(repeated.stdout)["error"])
+
+    def test_obsidian_health_cli_binds_the_selected_checkout(self):
+        root, memory = fixture()
+        write_note(memory, "project/selected-note.md", note("selected-note", "project", "Selected checkout only."))
+        command = [sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts/check_obsidian.py"), "--mei-root", str(root)]
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        output = json.loads(result.stdout)
+        self.assertTrue(output.get("direct_root"), output)
+        self.assertEqual(output["index"]["ids"], ["selected-note"])
+        with patch("sync_obsidian.resolve_memory_root", return_value=memory):
+            self.assertTrue(check_vault(None).get("direct_root"))
+        self.assertTrue(check_vault(memory).get("direct_root"))
+        self.assertFalse((memory / "views").exists())
+
+    def test_registry_and_migration_cannot_silently_use_an_unselected_root(self):
+        from rebuild_registry import expected_registry, rebuild
+        from validate_repository import validate_repository
+
+        root, default = fixture()
+        selected = default / "personal"
+        initialize_memory(selected)
+        write_note(selected, "project/selected-note.md", note("selected-note", "project", "Only the selected root."))
+        (root / "local").mkdir()
+        (root / "local/paths.toml").write_text(
+            f"[paths]\nmei_root = '{root}'\nmemory_root = '{selected}'\n"
+            f"codex_home = '{root / 'host'}'\nskills_root = '{root / 'skills'}'\ninbox = '{root / 'trajectories/inbox'}'\n",
+            encoding="utf-8",
+        )
+        shutil.copyfile(ROOT / "VERSION", root / "VERSION")
+        shutil.copyfile(ROOT / "README.md", root / "README.md")
+        (root / "schemas").mkdir()
+        shutil.copyfile(ROOT / "schemas/memory-note.schema.json", root / "schemas/memory-note.schema.json")
+        records = expected_registry(root)["records"]
+        self.assertEqual([record["id"] for record in records], ["selected-note"])
+        self.assertEqual(records[0]["path"], "memory/markdown/personal/project/selected-note.md")
+        (root / "registry").mkdir()
+        default_index = (default / "MEMORY.md").read_bytes()
+        self.assertTrue(rebuild(root))
+        self.assertFalse(rebuild(root))
+        self.assertEqual((default / "MEMORY.md").read_bytes(), default_index)
+        for name in ("projects", "skills"):
+            shutil.copyfile(ROOT / f"registry/{name}.example.yaml", root / f"registry/{name}.yaml")
+        validate_repository(root)
+        selected_note = selected / "project/selected-note.md"
+        original = selected_note.read_bytes()
+        selected_note.write_text("not a canonical note", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Markdown memory invalid"):
+            validate_repository(root)
+        selected_note.write_bytes(original)
+        with self.assertRaisesRegex(MigrationError, "configured memory_root"):
+            plan(root)
+        self.assertFalse((root / "memory/migration").exists())
+
+    def test_projection_cannot_target_another_canonical_root_or_nested_namespace(self):
+        root, memory = fixture()
+        other_root, other = fixture()
+        write_note(memory, "project/source-note.md", note("source-note", "project", "Synthetic source."))
+        write_note(other, "project/other-note.md", note("other-note", "project", "Keep the other vault."))
+        before = {path: path.read_bytes() for path in other.rglob("*") if path.is_file()}
+        with self.assertRaisesRegex(MemoryError, "canonical"):
+            sync_obsidian(other, "cross-root", memory_root=memory)
+        self.assertEqual({path: path.read_bytes() for path in other.rglob("*") if path.is_file()}, before)
+        with self.assertRaisesRegex(MemoryError, "canonical"):
+            sync_obsidian(memory, "nested", memory_root=memory, namespace="Mei Memory", lock_timeout=0.01)
+        self.assertEqual(check_vault(memory, namespace="Mei Memory")["status"], "invalid")
+        legacy = root / "obsidian-vault"
+        legacy.mkdir()
+        report = check_vault(legacy, memory_root=memory)
+        self.assertEqual(report["status"], "invalid")
+        self.assertIn("explicitly unregister", " ".join(report["errors"]))
+        self.assertFalse((memory / "Mei Memory").exists())
 
     def test_verify_reconstructs_source_fields_not_just_manifest_hashes(self):
         root, memory = fixture()

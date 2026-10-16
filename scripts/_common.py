@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Iterable
@@ -16,6 +17,14 @@ SECRET_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
+
+
+def publish_new_file(source: Path, target: Path) -> None:
+    """Atomically publish one same-filesystem file without replacing a target."""
+    if os.name == "nt":
+        os.rename(source, target)  # Windows rename refuses existing targets; no hard-link privilege needed.
+    else:
+        os.link(source, target)  # POSIX rename would replace an existing file.
 
 
 def version(root: Path = ROOT) -> str:

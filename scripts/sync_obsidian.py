@@ -19,6 +19,7 @@ import yaml
 from _common import ROOT
 from checkpoint_continuity import _LockTimeout, _context_lock
 from memory_markdown import (
+    CATEGORIES,
     INDEX_NAME,
     MEMORY_ID_PATTERN,
     MemoryError,
@@ -83,6 +84,10 @@ def _namespace_parts(namespace: str) -> list[str]:
     return parts
 
 
+def _canonical_root(vault: Path) -> bool:
+    return (vault / INDEX_NAME).is_file() and all((vault / category).is_dir() for category in CATEGORIES)
+
+
 def resolve_vault(
     vault_root: str | Path | None = None,
     namespace: str | None = None,
@@ -110,12 +115,12 @@ def resolve_vault(
     if not vault.is_dir():
         raise MemoryError(f"configured Obsidian vault is missing: {vault}")
     if vault.name.casefold() == "obsidian-vault" and (vault.parent / "memory" / "markdown").is_dir():
-        raise MemoryError("obsidian-vault is retired; use memory/markdown as the direct vault root")
+        raise MemoryError("legacy obsidian-vault is not a v2 target; open memory/markdown and explicitly unregister the old vault")
     _assert_no_reparse(vault)
     if any((parent / ".obsidian").is_dir() for parent in vault.parents):
         raise MemoryError("configured vault is nested inside another Obsidian vault")
     configured_namespace = namespace if namespace is not None else config.get("obsidian_memory_dir")
-    direct_root = (vault / INDEX_NAME).is_file() and all((vault / category).is_dir() for category in ("profile", "preferences", "domain", "procedural", "project", "feedback"))
+    direct_root = _canonical_root(vault)
     namespace = configured_namespace or ("" if direct_root else DEFAULT_NAMESPACE)
     if not namespace:
         return vault, vault, ""
@@ -322,6 +327,8 @@ def sync_obsidian(
     if namespace is None and vault_root is not None and Path(vault_root).expanduser().resolve() == memory_root:
         namespace = "."
     vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace, config_path=config_path)
+    if _canonical_root(vault) and (vault != memory_root or namespace_path != vault):
+        raise MemoryError("a canonical vault cannot be another root's projection target or use a nested projection namespace")
     if vault == memory_root and namespace_path == vault:
         report = markdown_doctor(memory_root)
         return {**report, "status": ("synced" if mode == "sync" else "ok") if report["status"] == "ok" else "invalid",
@@ -387,11 +394,20 @@ def check_vault(
     memory_root: str | Path | None = None,
 ) -> dict[str, Any]:
     try:
-        if vault_root is None and memory_root is not None:
+        if vault_root is None:
+            memory_root = memory_root or resolve_memory_root()
             vault_root, namespace = memory_root, namespace or "."
         if namespace is None and vault_root is not None and memory_root is not None and Path(vault_root).expanduser().resolve() == Path(memory_root).expanduser().resolve():
             namespace = "."
         vault, namespace_path, namespace_name = resolve_vault(vault_root, namespace)
+        if memory_root is None and _canonical_root(vault):
+            memory_root = vault
+        if memory_root is not None:
+            memory_root = Path(memory_root).expanduser()
+            _assert_no_reparse(memory_root)
+            memory_root = memory_root.resolve()
+            if _canonical_root(vault) and (vault != memory_root or namespace_path != vault):
+                raise MemoryError("a canonical vault cannot be another root's projection target or use a nested projection namespace")
         if memory_root is not None and vault == Path(memory_root).resolve() and namespace_path == vault:
             report = markdown_doctor(memory_root)
             return {**report, "direct_root": True, "namespace": ".", "errors": [] if report["status"] == "ok" else [report["error"]]}

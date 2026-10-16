@@ -11,6 +11,7 @@ import copy
 import os
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import yaml
@@ -397,13 +398,35 @@ class CompletionTests(unittest.TestCase):
             export_completed_trajectory(fixture.repo, fixture.context_id, snapshot, completed["trajectory"], mei_root=fixture.mei)
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_export_rejects_windows_reparse_attributes_before_publication(self):
+        from complete_continuity import export_completed_trajectory
+
+        fixture = completion_fixture()
+        completed = self.complete(fixture)
+        snapshot = load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        inbox = fixture.mei / "trajectories/inbox"
+        inbox.mkdir(parents=True)
+        original_lstat = Path.lstat
+
+        def reparse_inbox(path, *args, **kwargs):
+            metadata = original_lstat(path, *args, **kwargs)
+            if path == inbox:
+                return SimpleNamespace(st_mode=metadata.st_mode, st_file_attributes=0x400)
+            return metadata
+
+        with patch.object(Path, "lstat", reparse_inbox), patch("complete_continuity.publish_new_file") as publish:
+            with self.assertRaisesRegex(ContinuityError, "junction"):
+                export_completed_trajectory(fixture.repo, fixture.context_id, snapshot, completed["trajectory"], mei_root=fixture.mei)
+            publish.assert_not_called()
+        self.assertEqual(list(inbox.iterdir()), [])
+
     def test_failed_atomic_publication_can_be_retried_without_a_partial_source(self):
         from complete_continuity import curator_handoff, export_completed_trajectory
 
         fixture = completion_fixture()
         completed = self.complete(fixture)
         snapshot = load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
-        with patch("os.link", side_effect=OSError("Synthetic publication failure.")):
+        with patch("complete_continuity.publish_new_file", side_effect=OSError("Synthetic publication failure.")):
             with self.assertRaises(OSError):
                 export_completed_trajectory(fixture.repo, fixture.context_id, snapshot, completed["trajectory"], mei_root=fixture.mei)
         self.assertEqual(curator_handoff(fixture.repo, fixture.context_id, mei_root=fixture.mei)["required_action"], "export_and_retire")
