@@ -64,6 +64,9 @@ class TestHostEvents(unittest.TestCase):
         self.assertEqual(recovered["project"]["next_step"], "Run the selected validation checks.")
         self.assertEqual(recovered["context_id"], "shared")
         self.assertEqual(recovered["generation"], 0)
+        self.assertFalse(recovered["permission_report"]["verified"])
+        self.assertEqual(recovered["permission_report"]["source"], "hook_process_environment")
+        self.assertNotIn("permission_profile", recovered)
         self.assertNotIn("transcript_path", child.stdout)
         self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
 
@@ -146,6 +149,37 @@ class TestHostEvents(unittest.TestCase):
         self.assertTrue(json.loads(second.stdout)["continue"])
         self.assertNotIn("decision", json.loads(second.stdout))
         self.assertNotIn("must-not-read", second.stdout)
+
+    def test_stop_does_not_request_foreign_or_recovery_saves(self):
+        from continuity_adapters import read_tui_context
+
+        fixture = self.make_fixture()
+        self.host_event(fixture, "UserPromptSubmit")
+        foreign = json.loads(self.host_event(fixture, "Stop", session_id="other-session").stdout)
+        self.assertNotIn("decision", foreign)
+        self.assertIn("another_writer", foreign["systemMessage"])
+        self.host_event(fixture, "PreCompact", trigger="auto")
+        before = read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        recovery = json.loads(self.host_event(fixture, "Stop").stdout)
+        self.assertNotIn("decision", recovery)
+        self.assertIn("explicit_recovery_required", recovery["systemMessage"])
+        self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
+
+    def test_opt_in_receipts_exclude_private_input_and_record_failures(self):
+        fixture = self.make_fixture()
+        (fixture.mei / "local").mkdir()
+        (fixture.mei / "local/paths.toml").write_text("[host]\nevent_diagnostics = true\n", encoding="utf-8")
+        self.host_event(fixture, "PreCompact", trigger="auto", prompt="PRIVATE INPUT")
+        path = fixture.mei / f"local/hook-events/{fixture.repo_id}/tui/PreCompact.json"
+        receipt = json.loads(path.read_text())
+        self.assertEqual(receipt["stage"], "finished")
+        self.assertEqual(receipt["trigger"], "auto")
+        self.assertFalse(receipt["native_event_verified"])
+        self.assertNotIn("PRIVATE INPUT", path.read_text())
+        self.assertNotIn("must-not-read", path.read_text())
+        self.host_event(fixture, "Stop", stop_hook_active=True)
+        stop_path = path.with_name("Stop.json")
+        self.assertTrue(json.loads(stop_path.read_text())["stop_hook_active"])
 
     def test_readback_witness_cannot_write_the_selected_writers_bookkeeping(self):
         from continuity_adapters import read_tui_context

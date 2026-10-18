@@ -65,6 +65,7 @@ PUBLIC_FILES = frozenset(
         "scripts/light_architecture.mjs",
         "scripts/review_proposals.py",
         "scripts/continuity_handoff.py",
+        "scripts/mei.py",
         "scripts/init_local.py",
         "scripts/normalize_trajectory.py",
         "scripts/rebuild_registry.py",
@@ -83,6 +84,7 @@ PUBLIC_FILES = frozenset(
         "tests/test_review_proposals.py",
         "tests/test_v2_memory.py",
         "tests/test_continuity_handoff.py",
+        "tests/test_mei.py",
     }
 )
 SKELETON_PATH = re.compile(r"^(?:memory|skills|trajectories|evals|logs)/(?:[^/]+/)*\.gitkeep$")

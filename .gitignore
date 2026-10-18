@@ -58,6 +58,7 @@
 !/scripts/relations.py
 !/scripts/light_architecture.mjs
 !/scripts/continuity_handoff.py
+!/scripts/mei.py
 !/policies/
 /policies/**
 !/policies/memory-policy.md
@@ -96,6 +97,7 @@
 !/tests/test_v2_memory.py
 !/tests/test_review_proposals.py
 !/tests/test_continuity_handoff.py
+!/tests/test_mei.py
 !/evals/
 !/evals/**/
 /evals/**

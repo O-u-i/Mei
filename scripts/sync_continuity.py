@@ -88,6 +88,19 @@ def _snapshot_base(snapshot: dict[str, Any]) -> tuple[int, str, str]:
     return generation, project_sha256, index_sha256
 
 
+def _check_enrolled_writer(repo_root, context_id, writer_session_id, mei_root):
+    # Recheck under the context lock, after a queued save/lifecycle launch.
+    # The attachment is a cooperative gate, not an OS permission credential.
+    from continuity_adapters import _attachment
+
+    attached = _attachment(Path(mei_root or ROOT), Path(repo_root))
+    if attached:
+        writer = attached.get("writer")
+        expected = f'{writer["host"]}-{writer["session_id"]}'[:128] if writer else None
+        if attached["context_id"] != context_id or writer_session_id != expected:
+            raise ContinuityError("enrolled writer changed; reread the explicit attachment")
+
+
 def _sync_locked(
     repo_root: str | Path,
     context_id: str,
@@ -99,6 +112,7 @@ def _sync_locked(
     remote: str | None = None,
     reconcile: bool = False,
 ) -> dict[str, Any]:
+    _check_enrolled_writer(repo_root, context_id, writer_session_id, mei_root)
     if snapshot.get("repo_id") != repo_id_for(repo_root, remote) or snapshot.get("context_id") != context_id:
         raise ContinuityError("snapshot identity does not match selected repo/context")
     current = load_context(repo_root, context_id, mei_root=mei_root, remote=remote)
@@ -270,6 +284,7 @@ def _lifecycle_locked(
     mei_root: str | Path | None = None,
     remote: str | None = None,
 ) -> dict[str, Any]:
+    _check_enrolled_writer(repo_root, context_id, writer_session_id, mei_root)
     current = load_context(repo_root, context_id, mei_root=mei_root, remote=remote)
     if current["status"] in {"completed", "retired"}:
         return {

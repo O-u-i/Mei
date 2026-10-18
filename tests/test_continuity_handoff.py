@@ -38,8 +38,10 @@ class HandoffTests(unittest.TestCase):
         saved = load_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
         self.assertEqual(saved["project"]["status"], "active")
         self.assertEqual(saved["project"]["next_step"], project["next_step"])
-        snapshot_path.write_text(json.dumps(saved), encoding="utf-8")
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+        # Native child receives no outer-sandbox temporary file paths.
+        stdin_command = command[:command.index("--snapshot")] + ["--input-stdin", "--writer-session-id", "handoff-cli-test"]
+        result = subprocess.run(stdin_command, input=json.dumps({"snapshot": saved, "project": project}),
+                                capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)["status"], "handoff_noop")
         self.assertFalse((fixture.mei / "memory" / "proposals").exists())

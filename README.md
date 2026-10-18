@@ -204,6 +204,90 @@ python scripts/continuity_adapters.py --diagnose --mei-root . --repo-root . --ho
 
 Diagnostics do not modify contexts or read transcripts. `--host` labels a surface; it does not switch homes or permissions. Set the actual process's `CODEX_HOME` before testing each GUI. New local bindings use `gui1` and `gui2`; legacy `gui`/`tui` readers and archived evidence remain compatible and are not relabeled. `native_permissions_verified: false` and `cold_session_verified: false` intentionally distinguish a command diagnostic from real host acceptance.
 
+### Two-layer enrollment (no daemon)
+
+1. **Once per host:** run the configured checkout's
+   `python scripts/mei.py setup --host <gui1|gui2|all>`. Review the read-only
+   plan, then use `--apply` within an authorized maintenance task. This preserves
+   unrelated hooks/config bytes, backs up changed files, installs a verified
+   Skill-root pointer and adds a network-disabled diagnostics-only profile.
+   Native host discovery/trust remains a user-owned first-time action; setup
+   never manufactures a trusted hash or changes the default permission mode.
+2. **Once per project:** run `python <Mei>/scripts/mei.py attach --repo-root
+   <actual-git-root> --context-id <explicit-id> --goal <current-task-goal>`,
+   then `--apply` within the authorized scope. The installed maintenance Skill
+   also exposes `entry.py connect attach ...`. New context creation reuses the
+   existing locked writer and backs up/rebases only old index technical fields;
+   no old semantic project is rewritten. Existing context IDs must be explicit.
+   Configuration approval can still be necessary outside the workspace; a
+   prompt or Skill cannot remove native permission/trust boundaries.
+
+Re-running either layer is a no-op when unchanged. No resident service, package
+installation or background model is needed. Default role is observer. To enroll
+the current agent as writer, explicitly supply `--role writer --host <gui1|gui2>
+--session-id <actual-current-session>`. An explicit `--host gui1` or `--host gui2`
+changes only that host's config.
+Host grants publish before the attachment; a denied config leaves the prior
+attachment and writer selection unchanged.
+A foreign writer is not overwritten; `--takeover` requires explicit
+authorization and clean state. This is a
+cooperative lifecycle gate, not an OS lock preventing arbitrary edits by another
+agent. CAS/locks still protect continuity writes. The ordinary project grant
+stays unchanged; per-project context writes use a separate narrow native profile.
+Writer publication rechecks the context under its lifecycle/save lock; queued
+saves and lifecycle events recheck the attachment after acquiring that lock.
+A former writer cannot silently publish an already queued cooperative save
+after a clean-state transfer. Arbitrary direct filesystem access is separate.
+
+The installed continuity save entrypoint dispatches enrolled projects through
+`mei.py save` with fresh snapshot and the current agent's bounded project
+  payload. The caller validates the bounded schema/snapshot and project-relative
+  file references before native startup; the locked writer revalidates them.
+  External Mei/Skill source paths belong in bounded decisions, not
+  `stable_refs.file`, which may not escape the selected project.
+  The caller reads capped JSON files and transfers the input over stdin,
+so the inner context-only sandbox does not need access to the outer sandbox's
+private temporary directory. Failure reports expose only fixed error codes and
+stages, not raw child errors or summaries; no broader fallback is attempted.
+Known native initialization failures, including restricted-token or Windows
+desktop creation, are
+reported separately from writer rejection. A scoped native approval must remain
+user-owned; rerun only the approved self-contained operation with fresh inputs,
+not a command referencing another sandbox's temporary files. The inner context
+profile stays unchanged.
+The save child receives the caller's already validated actual home explicitly,
+including when CODEX_HOME was absent and the default home was used; the parent
+environment is unchanged and another host is never selected as a fallback.
+An automatic compact Hook cannot synthesize unsaved reasoning. Stop
+requests one supplemental save only from the matching dirty writer, never a
+foreign/recovery context; PostCompact restores the last valid handoff. Mid-turn
+automatic compact before such a save remains a declared limit, not a success.
+Prompt submission conservatively marks the enrolled writer dirty, even for a
+read-only prompt. A resulting Stop request never overrides a no-write user
+instruction; an observer is preferable for repeated read-only inspections.
+If the tool's outer sandbox denies native runtime initialization, save reports
+a bounded failure reason (such as `runtime_cap_sid_unavailable`) and stops.
+Any native approval belongs to the user; no wider fallback is selected.
+
+`python <Mei>/scripts/mei.py status --repo-root <actual-git-root>` is read-only.
+It reports context, writer, source-qualified permission labels and the latest
+metadata-only event receipts per repo/host. Setup selects a separate narrow
+diagnostics sandbox; denied recording is surfaced, never silently called saved.
+Receipts distinguish started/finished, skipped, not-attached and adapter failure;
+unobserved means unknown, **not** proof that a native event never fired. No prompt,
+transcript or semantic payload is logged. Native identity/trust and actual GUI
+compact acceptance must be established separately from synthetic events.
+
+A reusable one-message project request is:
+
+> Use the installed Mei maintenance connect entrypoint to attach this actual Git
+> root to Mei. Reuse the explicitly selected existing context or create the
+> project context for this task; show and apply only the scoped enrollment plan
+> with backups. Keep observer role unless I designate this agent as writer.
+> Do not change default permissions, Hook trust, business files, other tasks or
+> canonical memory. Return one short health receipt; stop only on real ambiguity
+> or a native approval requirement, not after each mechanical check.
+
 ### Hooks and manual fallback
 
 The shared adapter supports SessionStart, UserPromptSubmit, PreCompact, PostCompact and Stop:
