@@ -501,7 +501,7 @@ def initialize_memory(root: str | Path) -> list[str]:
             created.append(f"{category}/")
     index = memory_root / INDEX_NAME
     if not index.exists():
-        index.write_text("# Mei Memory\n\n<!-- Bounded index; detail notes live under category folders. -->\n", encoding="utf-8")
+        index.write_text("# Mei Memory\n\n<!-- Bounded index; detail notes live under category folders. -->\n", encoding="utf-8", newline="\n")
         created.append(INDEX_NAME)
     return created
 

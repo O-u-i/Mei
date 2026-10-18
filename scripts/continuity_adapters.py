@@ -27,7 +27,7 @@ else:  # Support direct imports when ``scripts`` is on ``sys.path``.
     from check_continuity import ContinuityError, _assert_no_reparse, _safe_relative_path, load_context
 
 
-SUPPORTED_HOSTS = frozenset(("gui", "tui"))
+SUPPORTED_HOSTS = frozenset(("gui1", "gui2", "gui", "tui"))
 READ_EVENTS = frozenset(("SessionStart", "PostCompact"))
 WRITE_EVENTS = frozenset(("UserPromptSubmit", "PreCompact"))
 STOP_EVENT = "Stop"
@@ -118,6 +118,13 @@ def _local_config(mei_root: Path) -> dict[str, Any]:
 def _host_for_home(mei_root: Path, actual_home: Path) -> str:
     """Label the surface from the configured homes; the label never grants writes."""
     paths = _local_config(mei_root).get("paths", {})
+    for host in ("gui2", "gui1"):
+        home = paths.get(f"codex_home_{host}")
+        try:
+            if home and Path(home).resolve() == actual_home.resolve():
+                return host
+        except OSError:
+            pass
     tui_home = paths.get("codex_home_tui")
     try:
         if tui_home and Path(tui_home).resolve() == actual_home.resolve():
@@ -369,7 +376,18 @@ def read_tui_context(
     )
 
 
-__all__ = ["SUPPORTED_HOSTS", "read_context", "read_gui_context", "read_tui_context"]
+def read_gui1_context(repo_root: str | Path, context_id: str, **kwargs: Any) -> dict[str, Any]:
+    """Read the GUI1 context without changing historical GUI/TUI labels."""
+    return read_context(repo_root, context_id, host="gui1", **kwargs)
+
+
+def read_gui2_context(repo_root: str | Path, context_id: str, **kwargs: Any) -> dict[str, Any]:
+    """Read the GUI2 context from the former TUI home, without writing."""
+    return read_context(repo_root, context_id, host="gui2", **kwargs)
+
+
+__all__ = ["SUPPORTED_HOSTS", "read_context", "read_gui1_context", "read_gui2_context",
+           "read_gui_context", "read_tui_context"]
 
 
 def main(argv: list[str] | None = None) -> int:

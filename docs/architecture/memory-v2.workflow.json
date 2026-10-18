@@ -33,7 +33,7 @@
       "lane": "read",
       "col": 0,
       "type": "frontend",
-      "label": "GUI / TUI / CLI",
+      "label": "GUI1 / GUI2 / CLI",
       "width": 396,
       "height": 92
     },

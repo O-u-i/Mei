@@ -4,11 +4,11 @@
 mei_root = "<absolute-path-to-Mei-checkout>"
 memory_root = "<absolute-path-to-Mei-checkout>/memory/markdown"
 codex_home = "<absolute-path-to-personal-Codex-directory>"
-codex_home_gui = "<absolute-path-to-GUI-Codex-directory>"
-codex_home_tui = "<absolute-path-to-TUI-Codex-directory>"
+codex_home_gui1 = "<absolute-path-to-GUI1-Codex-directory>"
+codex_home_gui2 = "<absolute-path-to-GUI2-Codex-directory>"
 codex_cli = "<absolute-path-to-native-Codex-executable>"
-codex_memory_source_gui = "<absolute-path-to-GUI-Codex-directory>/memories"
-codex_memory_source_tui = "<absolute-path-to-TUI-Codex-directory>/memories"
+codex_memory_source_gui1 = "<absolute-path-to-GUI1-Codex-directory>/memories"
+codex_memory_source_gui2 = "<absolute-path-to-GUI2-Codex-directory>/memories"
 skills_root = "<absolute-path-to-personal-Codex-skills>"
 inbox = "<absolute-path-to-Mei-inbox>"
 obsidian_vault = "<absolute-path-to-Mei-checkout>/memory/markdown"
@@ -26,7 +26,7 @@ memory_injection = true
 continuity_lifecycle_profile = false
 continuity_draft_profile = false
 obsidian_projection_profile = false
-# If required by this host, e.g. codex_config_profile_tui = "relay"
+# If required by this host, e.g. codex_config_profile_gui2 = "relay"
 
 [continuity.selected_contexts]
 # Explicitly bind a verified repository ID when several active contexts exist.

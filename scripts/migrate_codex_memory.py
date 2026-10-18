@@ -101,8 +101,8 @@ def _atomic_write(path: Path, raw: bytes) -> None:
 
 
 def _target_root(mei_root: Path, host: str) -> Path:
-    if host not in {"gui", "tui"}:
-        raise ValueError("host must be gui or tui")
+    if host not in {"gui1", "gui2", "gui", "tui"}:
+        raise ValueError("host must be gui1, gui2, gui or tui")
     return mei_root / "memory" / "markdown" / "archive" / f"codex-{host}"
 
 
@@ -210,7 +210,8 @@ def _sources_from_config(mei_root: Path) -> dict[str, Path]:
 
     with (mei_root / "local" / "paths.toml").open("rb") as stream:
         paths = tomllib.load(stream)["paths"]
-    return {host: Path(paths[f"codex_memory_source_{host}"]) for host in ("gui", "tui") if paths.get(f"codex_memory_source_{host}")}
+    hosts = ("gui1", "gui2") if any(paths.get(f"codex_memory_source_{host}") for host in ("gui1", "gui2")) else ("gui", "tui")
+    return {host: Path(paths[f"codex_memory_source_{host}"]) for host in hosts if paths.get(f"codex_memory_source_{host}")}
 
 
 def _cli() -> int:

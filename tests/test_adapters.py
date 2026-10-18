@@ -473,6 +473,25 @@ class TestPrecompactReceipts(unittest.TestCase):
 
 
 class TestAdapters(unittest.TestCase):
+    def test_gui1_gui2_bindings_override_legacy_names_without_writing(self):
+        from continuity_adapters import _host_for_home, read_gui1_context, read_gui2_context
+
+        with fixture_root() as temp:
+            fixture = ContinuityFixture(temp)
+            gui1, gui2 = temp / "gui1-home", temp / "gui2-home"
+            config = {"paths": {"codex_home_gui1": str(gui1),
+                                 "codex_home_gui2": str(gui2),
+                                 "codex_home_tui": str(gui2)}}
+            before = {p: p.read_bytes() for p in fixture.context_dir.iterdir() if p.is_file()}
+            with patch("continuity_adapters._local_config", return_value=config):
+                self.assertEqual(_host_for_home(fixture.mei, gui1), "gui1")
+                self.assertEqual(_host_for_home(fixture.mei, gui2), "gui2")
+            one = read_gui1_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+            two = read_gui2_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+            self.assertEqual((one["host"], two["host"]), ("gui1", "gui2"))
+            self.assertEqual(one["project_sha256"], two["project_sha256"])
+            self.assertEqual({p: p.read_bytes() for p in before}, before)
+
     def test_diagnostic_sidecars_are_not_continuity_or_memory_records(self):
         from continuity_adapters import _memory_digest, read_gui_context
         from rebuild_registry import expected_registry
@@ -495,7 +514,7 @@ class TestAdapters(unittest.TestCase):
     def test_adapter_module_is_importable_from_the_repository_package(self):
         from scripts.continuity_adapters import SUPPORTED_HOSTS
 
-        self.assertEqual(SUPPORTED_HOSTS, frozenset({"gui", "tui"}))
+        self.assertEqual(SUPPORTED_HOSTS, frozenset({"gui1", "gui2", "gui", "tui"}))
 
     def test_gui_and_tui_adapters_resume_one_context_without_writing(self):
         from continuity_adapters import read_gui_context, read_tui_context

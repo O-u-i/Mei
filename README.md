@@ -1,6 +1,6 @@
 # Mei v2.0.0
 
-Mei is local-first agent memory infrastructure shared by GUI and TUI hosts. **Markdown with YAML frontmatter under `memory/markdown/` is the only runtime canonical source.** The same directory opens directly as an Obsidian vault. Reading, search, proposals, relations, diagnostics and migration do not require Obsidian, an Obsidian plugin or an online service.
+Mei is local-first agent memory infrastructure shared by GUI1 and GUI2 hosts. **Markdown with YAML frontmatter under `memory/markdown/` is the only runtime canonical source.** The same directory opens directly as an Obsidian vault. Reading, search, proposals, relations, diagnostics and migration do not require Obsidian, an Obsidian plugin or an online service.
 
 **Status:** v2.0.0 workspace implementation. Production user-data migration has not been performed in this development pass. Synthetic tests, native command probes, real host cold starts and human acceptance are separate evidence.
 
@@ -26,7 +26,7 @@ All current diagrams use **Light only, 2048 × 1320**. HTML supports search, foc
 | Diagram | Viewer / static image | Editable source |
 | --- | --- | --- |
 | System workflow | [HTML](docs/architecture/memory-v2.workflow.html) · [SVG](docs/architecture/memory-v2.workflow.svg) | [Workflow JSON](docs/architecture/memory-v2.workflow.json) |
-| Shared GUI/TUI reading | [HTML](docs/architecture/memory-read.html) · [SVG](docs/architecture/memory-read.svg) | [Architecture JSON](docs/architecture/memory-read.architecture.json) |
+| Shared GUI1/GUI2 reading | [HTML](docs/architecture/memory-read.html) · [SVG](docs/architecture/memory-read.svg) | [Architecture JSON](docs/architecture/memory-read.architecture.json) |
 | Approval and recovery | [HTML](docs/architecture/memory-promotion.html) · [SVG](docs/architecture/memory-promotion.svg) | [Workflow JSON](docs/architecture/memory-promotion.workflow.json) |
 
 ### Reading and writing are different boundaries
@@ -179,7 +179,7 @@ python scripts/memory.py relations recover --journal-sha256 CURRENT-HASH --confi
 
 Recovery restores the pre-transaction versions and refuses conflicting external edits. Reread, preview and explicitly apply afterward. Approval history and successful receipts remain in the proposal.
 
-## GUI/TUI integration and continuity
+## GUI1/GUI2 integration and continuity
 
 ### One Mei checkout, separate host homes
 
@@ -188,21 +188,21 @@ Each host retains its configuration, authentication, sessions, SQLite, locks, ca
 | Configuration | Purpose |
 | --- | --- |
 | paths.mei_root / memory_root | The checkout and its single canonical Markdown root. |
-| paths.codex_home_gui / codex_home_tui | Identify host homes; these fields do not grant access. |
+| paths.codex_home_gui1 / codex_home_gui2 | Identify GUI1 and GUI2 homes; these fields do not grant access. |
 | paths.codex_cli / skills_root | Machine-local native CLI and installed personal Skills. |
 | host.memory_injection | False disables bounded memory injection without deleting data. |
 | host.continuity_lifecycle_profile | Separately selected narrow context writer; no selection means no automatic write. |
-| host.codex_config_profile_tui | Set only when that host has the corresponding layered configuration. |
+| host.codex_config_profile_gui1 / codex_config_profile_gui2 | Optional host-specific configuration layer; omit when the effective settings are already in the base config. |
 | continuity.selected_contexts | Explicit verified `repo-id = "context-id"` binding when multiple contexts are active. Never inferred from a writable path. |
 
 Named permissions use `[permissions.<name>]` and `default_permissions`. `--profile` selects a separate configuration layer, not a permission profile. Check the installed CLI's help and [official configuration documentation](https://learn.chatgpt.com/docs/config-file/config-basic). AGENTS, environment variables and session names are not ACL evidence.
 
 ```powershell
-python scripts/continuity_adapters.py --diagnose --mei-root . --repo-root . --host gui
-python scripts/continuity_adapters.py --diagnose --mei-root . --repo-root . --host tui
+python scripts/continuity_adapters.py --diagnose --mei-root . --repo-root . --host gui1
+python scripts/continuity_adapters.py --diagnose --mei-root . --repo-root . --host gui2
 ```
 
-Diagnostics do not modify contexts or read transcripts. `--host` labels a surface; it does not switch homes or permissions. Set the actual process's `CODEX_HOME` before testing TUI. `native_permissions_verified: false` and `cold_session_verified: false` intentionally distinguish a command diagnostic from real host acceptance.
+Diagnostics do not modify contexts or read transcripts. `--host` labels a surface; it does not switch homes or permissions. Set the actual process's `CODEX_HOME` before testing each GUI. New local bindings use `gui1` and `gui2`; legacy `gui`/`tui` readers and archived evidence remain compatible and are not relabeled. `native_permissions_verified: false` and `cold_session_verified: false` intentionally distinguish a command diagnostic from real host acceptance.
 
 ### Hooks and manual fallback
 
@@ -223,7 +223,7 @@ Repository validation cannot establish native hook trust, installed Skill semant
 1. Inspect `/hooks` in **each actual host**. The active definitions must include all five events above, including Stop; avoid duplicate project/user handlers. Historical trust entries do not prove that today's definitions are loaded or trusted.
 2. Inspect the effective named permissions and roots, not just a profile name or environment variable. The actual `skills_root`, selected context, and host runtime must have the access required by that operation. `--profile` selects a config layer; where supported, `-c default_permissions=mei-maintainer` selects the named maintenance default. A denied home/alias/runtime startup is a failed launch, not permission evidence; do not substitute a fresh home or broader profile to make it pass.
 3. Resolve installed Skills through the active local registry and verify both frontmatter identity and instructions. JSON-canonical or generated-`views/` guidance is not the v2 workflow. Run the actual entrypoint as well as its repository handler; either can be stale independently.
-4. In real GUI and TUI sessions, check startup injection, a dirty manual-compact gate, an explicit fresh-snapshot save, and successful `/compact` followed by the same repo/context and current Markdown index. Automatic compact must remain fail-open and expose reconciliation debt. Keep bounded before/after hashes and generations locally, not raw sessions. A synthetic hook envelope, `--host` label, or previous cold start does not satisfy this acceptance.
+4. In real GUI1 and GUI2 sessions, check startup injection, a dirty manual-compact gate, an explicit fresh-snapshot save, and successful `/compact` followed by the same repo/context and current Markdown index. Automatic compact must remain fail-open and expose reconciliation debt. Keep bounded before/after hashes and generations locally, not raw sessions. A synthetic hook envelope, `--host` label, or previous cold start does not satisfy this acceptance.
 
 Host-native memory snapshots are historical evidence, not proof that Mei migration or injection ran. Do not silently enable them, merge host stores, or promote their old instructions to repair a deployment gap.
 
@@ -260,6 +260,9 @@ python scripts/migrate_memory.py rollback --root . --target memory/markdown/doma
 - Missing provenance/scope means `review_required`, never invented verification. Candidates become complete unapproved Markdown proposals, not retrievable canonical facts.
 - Preflight rejects duplicate IDs/keys, secrets, invalid fields, unsafe/reparse paths and invalid relations. Invalid preflight does not first write a partial set of notes.
 - If canonical and archive inputs reuse a stable ID, stop for a reviewed historical-version disposition. Do not silently suffix IDs, drop archives or merge claims to force a valid plan. Migration targets this checkout's `memory/markdown`; a different configured subroot is rejected rather than silently migrating into an unselected root.
+- Same-claim historical pairs may use `plan --dispositions ./reviewed-dispositions.json`. The JSON has `schema_version: "v1.0.0"` and `pairs`; each decision contains `id`, `canonical` and `archive` source/SHA-256 pins, `disposition: "canonical_with_archive_evidence_review_required"`, and a review `reason`. Claims, scope, category, conflicts and relations must match; all legacy inputs must be covered. Divergent facts and Markdown upgrades need separate review.
+- This disposition keeps the original ID, renders the canonical version with `review_required: true` (excluded from retrieval), and retains both original JSON versions byte-for-byte. The Markdown History and manifest link the archived version without merging its provenance or claims. A later promotion is a separate reviewed operation.
+- Production execution additionally requires `migrate --dispositions ./reviewed-dispositions.json --approved-dispositions-sha256 EXACT-SEPARATELY-APPROVED-HASH --maintainer`. The hash is not approval by itself. Source/decision/inventory drift fails closed; repeated runs retain the same decision binding. Verification rereads that file and both sources, and archive evidence cannot be a rollback deletion target.
 - Original JSON bytes are retained in `memory/legacy-json/` without overwriting different evidence. Pre-upgrade Markdown bytes remain in `memory/migration/backups/`.
 - The manifest is `memory/migration/manifest.yaml`; verification reports are in `memory/migration/reports/`. Repeated migration retains ownership/hash receipts and protects human edits.
 - Rollback removes **one** unchanged, manifest-created Markdown file per invocation. It never deletes legacy JSON, technical protocols or pre-existing Markdown. Select each file explicitly; batch deletion is disabled. Modified targets and removals that would create dangling relations return protected; remove relations through approved proposals first. Upgrade backups remain for reviewed manual recovery.
@@ -268,6 +271,10 @@ python scripts/migrate_memory.py rollback --root . --target memory/markdown/doma
 ## Optional Obsidian direct-root workbench
 
 Choose **Open folder as vault → this checkout's `memory/markdown/`**. No nested vault or plugin is required. Optional `.obsidian/` GUI settings are not runtime memory input.
+
+The Markdown index initializer and generated-index writer emit UTF-8 with LF line endings on every platform. Initialization preserves existing files. File hashes and proposal approvals still bind exact bytes; investigate line-ending drift rather than normalizing hashes or rewriting historical receipts.
+
+For browsing, set Obsidian's **Editor → Default view for new tabs → Reading view** and switch existing editing tabs to Reading view individually. **Strict line breaks** controls rendering, not LF/CRLF storage. Reading view reduces accidental editing but is not filesystem write isolation; retain the approved-writer boundary and exact-byte drift checks.
 
 Setting `paths.obsidian_vault`, creating `.obsidian/`, or passing `check_obsidian.py` does **not** register the folder with the desktop app. Confirm the app actually opens this exact folder, not the whole `memory/` protocol store. When retiring an old `obsidian-vault`, first review captures, settings and generated-file ownership; then remove its application registration and obsolete projection selection through an authorized maintenance path. Preserve its files until individually reviewed. A CLI refusing the old path does not prove that the app has stopped using it.
 

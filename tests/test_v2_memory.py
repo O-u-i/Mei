@@ -492,5 +492,148 @@ class V2MemoryTests(unittest.TestCase):
         self.assertTrue(any("source fields" in error for error in result["errors"]), result)
 
 
+def paired_fixture():
+    root, memory = fixture()
+    canonical = root / "memory/canonical/domain/same-id.json"
+    archive = root / "memory/archive/same-id.json"
+    data = {"id": "same-id", "category": "domain", "claim": "One historical claim.",
+            "scope": "dated fixture", "status": "canonical", "verified_at": "2026-09-26T07:00:00Z",
+            "provenance": [{"source": "fixture.md", "locator": "dated observation", "evidence_type": "current_file"}],
+            "notes": "Later review notes.", "references": ["episodic/index.md"]}
+    for path, record in ((canonical, data), (archive, dict(data, status="archived", verified_at=None,
+                                                        notes="Archived original notes.", references=[]))):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(json.dumps(record).encode() + b"\r\n")
+    def pin(path):
+        return {"source": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    decisions = {"schema_version": "v1.0.0", "pairs": [{"id": "same-id", "canonical": pin(canonical),
+                  "archive": pin(archive), "disposition": "canonical_with_archive_evidence_review_required",
+                  "reason": "Same claim; retain both historical sources without merging notes or provenance."}]}
+    path = root / "reviewed-decisions.json"
+    path.write_bytes(json.dumps(decisions).encode())
+    return root, memory, path, decisions
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class MigrationDispositionTests(unittest.TestCase):
+    def test_unresolved_duplicate_and_missing_or_stale_approval_write_nothing(self):
+        root, memory, decisions, _ = paired_fixture()
+        self.assertEqual(migrate(root)["status"], "invalid")
+        self.assertEqual(plan(root, dispositions_path=decisions)["status"], "ok")
+        for kwargs in ({}, {"approved_dispositions_sha256": "0" * 64}):
+            with self.assertRaises(MigrationError):
+                migrate(root, dispositions_path=decisions, **kwargs)
+        self.assertFalse((root / "memory/migration/manifest.yaml").exists())
+        self.assertFalse((root / "memory/legacy-json").exists())
+        self.assertFalse((memory / "domain/same-id.md").exists())
+
+    def test_preserves_both_versions_id_history_and_review_gate_repeats_and_rolls_back_one_note(self):
+        root, memory, decisions, data = paired_fixture()
+        original = {pair["source"]: (root / pair["source"]).read_bytes() for pair in
+                    (data["pairs"][0]["canonical"], data["pairs"][0]["archive"])}
+        args = {"dispositions_path": decisions, "approved_dispositions_sha256": digest(decisions)}
+        result = migrate(root, **args)
+        self.assertEqual(result["status"], "migrated", result)
+        manifest = root / "memory/migration/manifest.yaml"
+        target = memory / "domain/same-id.md"
+        raw = target.read_bytes()
+        note = parse_note(raw.decode(), target)
+        self.assertEqual(note["memory_id"], "same-id")
+        self.assertTrue(note["review_required"])
+        self.assertEqual(read_memory(memory)["notes"], [])
+        self.assertEqual(note["references"], ["episodic/index.md"])
+        self.assertIn("Later review notes.", note["body"])
+        self.assertNotIn("Archived original notes.", note["body"])
+        self.assertIn(data["pairs"][0]["archive"]["sha256"], note["body"])
+        for source, source_raw in original.items():
+            self.assertEqual((root / source).read_bytes(), source_raw)
+            self.assertEqual((root / "memory/legacy-json" / source.removeprefix("memory/")).read_bytes(), source_raw)
+        self.assertEqual(migrate(root, **args)["status"], "migrated")
+        self.assertEqual(target.read_bytes(), raw)
+        self.assertEqual(verify(manifest, root)["status"], "ok")
+        receipt = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        saved = manifest.read_bytes()
+        archive_entry = next(entry for entry in receipt["entries"] if entry["kind"] == "evidence")
+        archive_entry["created_by_manifest"] = True
+        manifest.write_bytes(yaml.safe_dump(receipt).encode())
+        with self.assertRaises(MigrationError):
+            rollback(manifest, root, target=archive_entry["target"])
+        archive_entry["created_by_manifest"] = False
+        receipt["entries"] = [entry for entry in receipt["entries"] if entry["kind"] != "evidence"]
+        manifest.write_bytes(yaml.safe_dump(receipt).encode())
+        self.assertEqual(verify(manifest, root)["status"], "invalid")
+        manifest.write_bytes(saved)
+        self.assertEqual(rollback(manifest, root, target="memory/markdown/domain/same-id.md")["status"], "rolled_back")
+        self.assertFalse(target.exists())
+        self.assertEqual(verify(manifest, root)["status"], "ok")
+        for source, source_raw in original.items():
+            self.assertEqual((root / "memory/legacy-json" / source.removeprefix("memory/")).read_bytes(), source_raw)
+
+    def test_pins_inventory_claims_relations_and_evidence_fail_closed(self):
+        for failure in ("source_drift", "new_source", "claim", "relations", "evidence", "id"):
+            with self.subTest(failure=failure):
+                root, memory, decisions, data = paired_fixture()
+                pair = data["pairs"][0]
+                archive = root / pair["archive"]["source"]
+                if failure in {"source_drift", "claim", "relations"}:
+                    record = json.loads(archive.read_bytes())
+                    record["claim" if failure != "relations" else "related"] = "Different fact" if failure != "relations" else ["other-id"]
+                    archive.write_bytes(json.dumps(record).encode())
+                    if failure != "source_drift":
+                        pair["archive"]["sha256"] = digest(archive)
+                elif failure == "new_source":
+                    (archive.parent / "unexpected.json").write_bytes(archive.read_bytes())
+                elif failure == "evidence":
+                    evidence = root / "memory/legacy-json/canonical/domain/same-id.json"
+                    evidence.parent.mkdir(parents=True)
+                    evidence.write_bytes(b"Edited existing evidence.")
+                else:
+                    pair["id"] = "renamed-id"
+                decisions.write_bytes(json.dumps(data).encode())
+                try:
+                    result = migrate(root, dispositions_path=decisions, approved_dispositions_sha256=digest(decisions))
+                except MigrationError:
+                    pass
+                else:
+                    self.assertEqual(result["status"], "invalid", result)
+                self.assertFalse((root / "memory/migration/manifest.yaml").exists())
+                self.assertFalse((memory / "domain/same-id.md").exists())
+
+    def test_cli_approval_gate_and_post_migration_decision_drift(self):
+        root, memory, decisions, data = paired_fixture()
+        result = subprocess.run([sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts/migrate_memory.py"),
+                                 "migrate", "--root", str(root), "--dispositions", str(decisions), "--maintainer"],
+                                capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("separately approved", json.loads(result.stdout)["error"])
+        first = migrate(root, dispositions_path=decisions, approved_dispositions_sha256=digest(decisions))
+        self.assertEqual(first["status"], "migrated")
+        target = memory / "domain/same-id.md"
+        saved = target.read_bytes()
+        data["pairs"][0]["reason"] = "Changed after review"
+        decisions.write_bytes(json.dumps(data).encode())
+        self.assertEqual(verify(root / "memory/migration/manifest.yaml", root)["status"], "invalid")
+        with self.assertRaises(MigrationError):
+            migrate(root, dispositions_path=decisions, approved_dispositions_sha256=digest(decisions))
+        self.assertEqual(target.read_bytes(), saved)
+
+    def test_source_drift_between_decision_validation_and_inventory_is_blocked(self):
+        from migrate_memory import _source_records
+        root, memory, decisions, data = paired_fixture()
+        def changed_inventory(selected):
+            source = root / data["pairs"][0]["canonical"]["source"]
+            source.write_bytes(source.read_bytes() + b" ")
+            return _source_records(selected)
+        with patch("migrate_memory._source_records", side_effect=changed_inventory):
+            result = migrate(root, dispositions_path=decisions, approved_dispositions_sha256=digest(decisions))
+        self.assertEqual(result["status"], "invalid")
+        self.assertFalse((root / "memory/migration/manifest.yaml").exists())
+        self.assertFalse((root / "memory/legacy-json").exists())
+        self.assertFalse((memory / "domain/same-id.md").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

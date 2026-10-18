@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Mei v2.0.0 · Shared GUI / TUI Reads",
+    "title": "Mei v2.0.0 · Shared GUI1 / GUI2 Reads",
     "locale": "en",
     "quality_profile": "standard",
     "viewBox": [
@@ -17,7 +17,7 @@
     {
       "id": "gui",
       "type": "frontend",
-      "label": "Codex GUI",
+      "label": "Codex GUI1",
       "sublabel": "Independent CODEX_HOME",
       "pos": [
         110,
@@ -31,7 +31,7 @@
     {
       "id": "tui",
       "type": "frontend",
-      "label": "Codex TUI",
+      "label": "Codex GUI2",
       "sublabel": "Independent CODEX_HOME",
       "pos": [
         110,

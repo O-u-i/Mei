@@ -23,13 +23,15 @@ No helper may silently choose a broader profile after a denied write.
 
 The explicitly selected Codex `mei-maintainer` profile is for a scoped Mei maintenance task. It may write the Mei checkout and the user-selected installed skill directory only within that task, while Curator review, provenance, conflict checks, validation, and explicit promotion decisions still apply. It does not authorize other projects, credentials, system permissions, or automatic promotion.
 
-The installed personal skills directory is independent of `codex_home`; record its machine-specific location as `skills_root` in Git-ignored `local/paths.toml` and the local skill registry. The repository validator checks that active skill pointers resolve under the configured `skills_root`, not that it equals `codex_home/skills`. GUI and TUI may use different host homes and memory-source paths, but both resolve the same Mei `memory_root` and continuity root.
+The installed personal skills directory is independent of `codex_home`; record its machine-specific location as `skills_root` in Git-ignored `local/paths.toml` and the local skill registry. The repository validator checks that active skill pointers resolve under the configured `skills_root`, not that it equals `codex_home/skills`. GUI1 and GUI2 may use different host homes and memory-source paths, but both resolve the same Mei `memory_root` and continuity root.
 
-`codex_home_gui` and `codex_home_tui` are host-owned runtime roots. Authentication,
+`codex_home_gui1` and `codex_home_gui2` are host-owned runtime roots. Authentication,
 capability tokens, configuration, active SQLite databases, locks, sessions,
 caches, plugins, and attachments remain there. A memory migration may read
-classified Markdown source files through `codex_memory_source_gui` and
-`codex_memory_source_tui`, but it does not move or rewrite either host home.
+classified Markdown source files through `codex_memory_source_gui1` and
+`codex_memory_source_gui2`, but it does not move or rewrite either host home.
+The previous `gui` and `tui` labels remain valid for historical evidence and
+compatibility readers; current local bindings identify GUI1 and GUI2 explicitly.
 
 These are Codex command/filesystem boundaries. Verify each host's effective boundaries separately before assuming equivalent enforcement. Approvals, prompts, browser/connectors, and escalated operations have separate controls. `AGENTS.md` and session naming are behavior guidance, not filesystem isolation. Select the intended Codex mode explicitly, confirm the workspace and paths in a fresh session, and describe only enforcement that has been verified. Keep machine-specific verification evidence local.
 

@@ -25,15 +25,16 @@ def write_if_missing(path: Path, content: str) -> bool:
 def initialize(root: Path = ROOT, codex_home: Path | None = None) -> list[Path]:
     root = root.resolve()
     codex_home = (codex_home or Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))).resolve()
-    codex_home_tui = Path(os.environ.get("MEI_CODEX_HOME_TUI", str(codex_home))).resolve()
+    codex_home_gui1 = Path(os.environ.get("MEI_CODEX_HOME_GUI1", str(codex_home))).resolve()
+    codex_home_gui2 = Path(os.environ.get("MEI_CODEX_HOME_GUI2", str(codex_home))).resolve()
     paths = {
         "mei_root": root,
         "memory_root": root / "memory" / "markdown",
         "codex_home": codex_home,
-        "codex_home_gui": codex_home,
-        "codex_home_tui": codex_home_tui,
-        "codex_memory_source_gui": codex_home / "memories",
-        "codex_memory_source_tui": codex_home_tui / "memories",
+        "codex_home_gui1": codex_home_gui1,
+        "codex_home_gui2": codex_home_gui2,
+        "codex_memory_source_gui1": codex_home_gui1 / "memories",
+        "codex_memory_source_gui2": codex_home_gui2 / "memories",
         "skills_root": Path.home() / ".agents" / "skills",
         "inbox": root / "trajectories" / "inbox",
     }

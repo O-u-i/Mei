@@ -43,6 +43,24 @@ def note(memory_id: str, category: str, body: str, *, relationships: list[str] |
 
 
 class MarkdownMemoryTests(unittest.TestCase):
+    def test_index_uses_lf_and_external_line_ending_changes_remain_visible(self):
+        root = fixture_root()
+        initialize_memory(root)
+        index = root / "MEMORY.md"
+        self.assertEqual(index.read_bytes(),
+                         b"# Mei Memory\n\n<!-- Bounded index; detail notes live under category folders. -->\n")
+        write_note(root, "project/line-ending-note.md", note("line-ending-note", "project", "Stable."))
+        original = index.read_bytes()
+        self.assertNotIn(b"\r", original)
+        external = original.replace(b"\n", b"\r\n")
+        index.write_bytes(external)  # Synthetic external-editor change; production files stay untouched.
+        result = read_memory(root)["index"]
+        self.assertEqual(result["sha256"], hashlib.sha256(external).hexdigest())
+        self.assertNotEqual(result["sha256"], hashlib.sha256(original).hexdigest())
+        self.assertEqual(result["ids"], ["line-ending-note"])
+        initialize_memory(root)
+        self.assertEqual(index.read_bytes(), external)
+
     def test_write_is_discoverable_and_invalid_graph_preserves_both_files(self):
         root = fixture_root()
         initialize_memory(root)

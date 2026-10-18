@@ -37,6 +37,18 @@ def snapshot(path: Path) -> dict[str, bytes]:
 
 
 class MigrationTests(unittest.TestCase):
+    def test_gui_bindings_select_current_sources_without_rewriting_legacy_archives(self):
+        from migrate_codex_memory import _sources_from_config, _target_root
+
+        root, source, mei = fixture()
+        (mei / "local/paths.toml").write_text(
+            f"[paths]\ncodex_memory_source_gui1 = '{source}'\n"
+            f"codex_memory_source_gui2 = '{root / 'gui2-memories'}'\n"
+            f"codex_memory_source_tui = '{root / 'old-source'}'\n", encoding="utf-8")
+        self.assertEqual(set(_sources_from_config(mei)), {"gui1", "gui2"})
+        self.assertEqual(_target_root(mei, "gui2").name, "codex-gui2")
+        self.assertEqual(_target_root(mei, "tui").name, "codex-tui")
+
     def test_new_snapshot_preserves_prior_bytes_and_reports_privacy_blocks(self):
         root, source, mei = fixture()
         first = mei / "local/first.json"
