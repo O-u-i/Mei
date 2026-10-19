@@ -58,6 +58,20 @@ class ObsidianTests(unittest.TestCase):
         self.assertTrue((self.vault / ".obsidian").is_dir())
         self.assertEqual(check_vault(self.vault, memory_root=self.memory)["status"], "ok")
 
+    def test_explicit_legacy_projection_translates_canonical_path_links(self):
+        source = note("source-note", "See [[project/mei-project.md#Claim|project]].")
+        write_note(self.memory, "project/source-note.md", source)
+        for namespace in ("Mei Memory", "."):
+            with self.subTest(namespace=namespace):
+                sync_obsidian(self.vault, 1, memory_root=self.memory, namespace=namespace)
+                base = self.vault / namespace
+                prefix = "Mei Memory/" if namespace != "." else ""
+                self.assertIn(f"[[{prefix}views/mei-project#Claim|project]]",
+                              (base / "views/source-note.md").read_text(encoding="utf-8"))
+                self.assertIn(f"[[{prefix}views/mei-project]]",
+                              (base / "index.md").read_text(encoding="utf-8"))
+        self.assertEqual((self.memory / "project/source-note.md").read_text(encoding="utf-8"), source)
+
     def test_manual_projection_edit_is_reported_as_drift_and_preserved(self):
         sync_obsidian(self.vault, 1, memory_root=self.memory)
         page = self.vault / "Mei Memory" / "views" / "mei-project.md"
@@ -135,7 +149,11 @@ class ObsidianTests(unittest.TestCase):
         self.assertEqual(inbox.read_bytes(), original)
         sync_obsidian(self.vault, 2, memory_root=self.memory)
         uri = note_uri(self.vault, "views/capture-note.md")
-        self.assertEqual(parse_qs(urlsplit(uri).query)["file"], ["Mei Memory/views/capture-note.md"])
+        self.assertEqual(parse_qs(urlsplit(uri).query),
+                         {"path": [str((self.vault / "Mei Memory/views/capture-note.md").resolve())]})
+        direct = note_uri(self.memory, "project/capture-note.md", namespace=".")
+        self.assertEqual(parse_qs(urlsplit(direct).query),
+                         {"path": [str((self.memory / "project/capture-note.md").resolve())]})
         with self.assertRaises(MemoryError):
             note_uri(self.vault, "../outside.md")
         inbox.write_text(note("governed-note", "Review.").replace("status: active", "status: active\nreview_required: true"), encoding="utf-8")

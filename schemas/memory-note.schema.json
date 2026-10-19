@@ -10,6 +10,7 @@
     "category": {"enum": ["profile", "preferences", "domain", "procedural", "project", "feedback"]},
     "status": {"enum": ["active", "archived"]},
     "scope": {"type": "string", "minLength": 1, "maxLength": 240},
+    "description": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[^\r\n]+$", "description": "Short retrieval cue for the bounded index; not the note body. Older notes fall back to scope."},
     "source": {"type": "string", "minLength": 1, "maxLength": 500},
     "source_format": {"enum": ["markdown", "json"]},
     "provenance": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["source", "locator", "evidence_type", "verified_at"], "properties": {"source": {"type": "string", "minLength": 1}, "locator": {"type": "string", "minLength": 1}, "evidence_type": {"enum": ["current_file", "prior_memory", "trajectory", "user_decision", "test_result"]}, "verified_at": {"type": ["string", "null"], "format": "date-time"}}}},

@@ -17,6 +17,7 @@ from memory_markdown import (
     MemoryError,
     doctor,
     initialize_memory,
+    memory_digest,
     read_memory,
     resolve_memory_root,
     write_note,
@@ -24,7 +25,7 @@ from memory_markdown import (
 
 
 def search_memory(root: str | Path, query: str, *, schema_root: str | Path | None = None) -> list[dict[str, Any]]:
-    """Return active notes whose id, metadata, or Markdown body matches query."""
+    """Search active notes, returning discovery metadata rather than their bodies."""
     if not isinstance(query, str) or not query.strip():
         raise MemoryError("search query must be non-empty")
     needle = query.casefold().strip()
@@ -33,10 +34,11 @@ def search_memory(root: str | Path, query: str, *, schema_root: str | Path | Non
     for note in notes:
         haystack = "\n".join(
             str(note.get(key, ""))
-            for key in ("memory_id", "category", "scope", "source", "body")
+            for key in ("memory_id", "category", "description", "scope", "source", "body")
         ).casefold()
         if needle in haystack:
-            matches.append({key: value for key, value in note.items() if key != "body"} | {"body": note["body"]})
+            matches.append({key: note[key] for key in ("memory_id", "category", "scope", "path", "sha256")}
+                           | {"description": note.get("description", note["scope"])})
     return matches
 
 
@@ -148,9 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "doctor":
             result = doctor(root, schema_root=schema_root)
         elif args.command == "read":
-            result = read_memory(root, set(args.ids) if args.ids else None, schema_root=schema_root)
-            result["status"] = "ok"
-            result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
+            if args.ids:
+                result = read_memory(root, set(args.ids), schema_root=schema_root)
+                result["status"] = "ok"
+                result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
+            else:
+                result = memory_digest(root, schema_root=schema_root)
         elif args.command == "search":
             query = args.query_flag or args.query
             result = {"status": "ok", "query": query, "notes": search_memory(root, query or "", schema_root=schema_root)}

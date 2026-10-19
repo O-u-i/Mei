@@ -54,14 +54,20 @@ class V2MemoryTests(unittest.TestCase):
         root, memory = fixture()
         content = note("one", "project", "Unique searchable claim.")
         result = write_note(memory, "project/one.md", content)
-        for command in (("read",), ("search", "searchable")):
+        for command in (("read", "--id", "one"), ("search", "searchable")):
             code, output = cli(root, memory, *command)
             self.assertEqual(code, 0, output)
             self.assertEqual([item["memory_id"] for item in output["notes"]], ["one"])
+            if command[0] == "search":
+                self.assertNotIn("body", output["notes"][0])
+                self.assertEqual(output["notes"][0]["description"], "test scope")
         selected = subprocess.run([sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts/memory.py"),
                                    "read", "--mei-root", str(root)], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(selected.returncode, 0, selected.stdout)
-        self.assertEqual([item["memory_id"] for item in json.loads(selected.stdout)["notes"]], ["one"])
+        discovery = json.loads(selected.stdout)
+        self.assertEqual(discovery["ids"], ["one"])
+        self.assertNotIn("notes", discovery)
+        self.assertNotIn("Unique searchable claim.", selected.stdout)
         input_path = root / "input.md"
         for capability, text in (("P1", note("two", "project", "Safe.")),
                                  ("P2", note("two", "domain", "High risk.")),
@@ -164,7 +170,9 @@ class V2MemoryTests(unittest.TestCase):
         self.assertFalse((memory / "views").exists())
         self.assertFalse((memory / "index.md").exists())
         self.assertEqual({path: path.read_bytes() for path in canonical}, canonical)
-        self.assertIn("project%2Fone.md", note_uri(memory, "project/one.md"))
+        from urllib.parse import parse_qs, urlsplit
+        self.assertEqual(parse_qs(urlsplit(note_uri(memory, "project/one.md")).query),
+                         {"path": [str((memory / "project/one.md").resolve())]})
 
     def test_migration_repeats_verifies_preserves_protocols_and_single_file_rollback(self):
         root, memory = fixture()

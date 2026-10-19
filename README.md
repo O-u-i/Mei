@@ -1,10 +1,37 @@
 # Mei v2.0.0
 
-Mei is local-first agent memory infrastructure shared by GUI1 and GUI2 hosts. **Markdown with YAML frontmatter under `memory/markdown/` is the only runtime canonical source.** The same directory opens directly as an Obsidian vault. Reading, search, proposals, relations, diagnostics and migration do not require Obsidian, an Obsidian plugin or an online service.
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github&logoColor=white)](https://github.com/O-u-i/Mei)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
+[![Checkout v2.0.0](https://img.shields.io/badge/Checkout-v2.0.0-6f42c1)](VERSION)
 
-**Status:** v2.0.0 workspace implementation. Production user-data migration has not been performed in this development pass. Synthetic tests, native command probes, real host cold starts and human acceptance are separate evidence.
+[Source on GitHub](https://github.com/O-u-i/Mei) · [Report an issue](https://github.com/O-u-i/Mei/issues)
 
-## What changed
+Mei is local-first, reviewed memory infrastructure for coding agents. It keeps reusable knowledge separate from current-task handoffs, so agents can recover context without treating an old summary as a current fact or permission to act. Multiple hosts can share one Mei checkout while retaining independent host configuration and runtime data.
+
+**Markdown with YAML frontmatter under `memory/markdown/` is the only runtime canonical source.** The same directory opens directly as an Obsidian vault. Reading, search, proposals, relations, diagnostics and migration do not require Obsidian, a plugin or an online service.
+
+**Status:** v2.0.0 checkout implementation, not a hosted service or a guarantee of lossless compaction. Migration and native host acceptance are installation-specific; repository tests do not establish either. See [VERSION](VERSION), [memory policy](policies/memory-policy.md) and [permissions policy](policies/permissions-policy.md).
+
+## Quick start
+
+From a local checkout, with Python 3.11+ and an explicitly selected maintenance scope:
+
+```powershell
+python -m pip install -r requirements.txt
+python scripts/init_local.py
+python scripts/memory.py doctor
+python scripts/memory.py read
+```
+
+The initializer creates an empty canonical vault and missing local configuration; it preserves existing files and does not import personal data, install hooks or register an Obsidian vault. On a fresh install, an empty index is expected. Review `local/paths.toml` before connecting hosts or migrating existing memory. Dependency installation remains subject to the local approval and license policy.
+
+- **Knowledge:** use [daily operations](#daily-operations) to read notes or propose a reviewed change.
+- **Task handoff:** use [host integration](#gui1gui2-integration-and-continuity) for setup, explicit project enrollment and continuity.
+- **Obsidian:** open the canonical folder directly; see [the workbench and graph guide](#optional-obsidian-direct-root-workbench).
+- **Contributing:** see [development and verification](#development-and-verification); private memory is not a contribution fixture.
+
+## What Mei provides
 
 | Capability | v2.0.0 behavior |
 | --- | --- |
@@ -43,18 +70,23 @@ All current diagrams use **Light only, 2048 × 1320**. HTML supports search, foc
 - **Trajectory / episodic:** redacted evidence from completed tasks. One eligible task produces at most one trajectory; full chat exports are prohibited.
 - **Legacy JSON:** read-only migration/audit evidence. Original bytes are retained and excluded from normal memory retrieval.
 
+### Choose the permission mode
+
+| Mode | Use it when | Boundary |
+| --- | --- | --- |
+| `mei-project` | Doing ordinary work in another project. | Mei is read-only except one eligible new redacted trajectory in `trajectories/inbox`. |
+| `mei-personal-memory` | Explicitly recording a reviewed, new low-risk preference, project or feedback note. | No existing-note overwrite, relation edit, canonical promotion or host configuration change. |
+| `mei-maintainer` | Performing an explicitly scoped Mei maintenance or Curator task. | Proposals, current hashes and approval still govern existing memory changes; no automatic promotion or access to unrelated projects. |
+
+These are local command/filesystem modes, not interchangeable feature switches. `setup` and `attach` do not add persistent per-context profiles. Full Access, if separately selected in the host, does not bypass Mei's writer ownership, review or CAS checks. A profile name or environment variable is not evidence of effective isolation.
+
 ## Start here
 
 ### First installation
 
 Python 3.11+ is required. Runtime dependencies are jsonschema and PyYAML from `requirements.txt`. Node and Archify are documentation tools, not memory runtime dependencies. Review the **exact versions and transitive licenses** before installation; these commands do not bypass your license gate.
 
-```powershell
-python -m pip install -r requirements.txt
-python scripts/init_local.py
-python scripts/memory.py init --root memory/markdown
-python scripts/memory.py doctor --root memory/markdown
-```
+Use the [quick start](#quick-start) for initialization. `python scripts/memory.py init --root memory/markdown` can also create an empty Markdown layout explicitly; it preserves existing files.
 
 Run examples from the Mei checkout root. Initialization, migration and registry rebuilding belong to an explicitly selected maintainer workflow. Capability labels and confirmation flags never grant filesystem permissions.
 
@@ -71,6 +103,15 @@ Review Git-ignored `local/paths.toml`; its portable template is [local/paths.exa
 ## Daily operations
 
 ### Read, search and diagnose
+
+Discovery is description-first: bare `read` returns the bounded index (at most
+16 KiB of text), never the note bodies. `search` returns matching IDs, paths,
+scopes and descriptions; use `read --id` for selected details. YAML
+`description` is an optional single-line retrieval cue (1–240 characters);
+older notes fall back to `scope`. Startup hooks inject this same bounded index,
+not the corpus. Validation/search may inspect files locally; that is distinct
+from returning their content to the model. The internal `read_memory` library
+still supports whole-corpus maintenance, not automatic context injection.
 
 ```powershell
 python scripts/memory.py read
@@ -181,6 +222,8 @@ Recovery restores the pre-transaction versions and refuses conflicting external 
 
 ## GUI1/GUI2 integration and continuity
 
+`GUI1` and `GUI2` are local labels for two independently configured agent hosts, not additional products or required services. A single-host installation can configure and verify only that host.
+
 ### One Mei checkout, separate host homes
 
 Each host retains its configuration, authentication, sessions, SQLite, locks, cache and plugins in its own `CODEX_HOME`. Both resolve the same `memory_root` through local configuration. Host runtime stores are not moved or merged.
@@ -191,7 +234,7 @@ Each host retains its configuration, authentication, sessions, SQLite, locks, ca
 | paths.codex_home_gui1 / codex_home_gui2 | Identify GUI1 and GUI2 homes; these fields do not grant access. |
 | paths.codex_cli / skills_root | Machine-local native CLI and installed personal Skills. |
 | host.memory_injection | False disables bounded memory injection without deleting data. |
-| host.continuity_lifecycle_profile | Separately selected narrow context writer; no selection means no automatic write. |
+| local/attachments/<repo-id>.json | Explicit context and host/session writer binding, not a permission profile. |
 | host.codex_config_profile_gui1 / codex_config_profile_gui2 | Optional host-specific configuration layer; omit when the effective settings are already in the base config. |
 | continuity.selected_contexts | Explicit verified `repo-id = "context-id"` binding when multiple contexts are active. Never inferred from a writable path. |
 
@@ -210,30 +253,36 @@ Diagnostics do not modify contexts or read transcripts. `--host` labels a surfac
    `python scripts/mei.py setup --host <gui1|gui2|all>`. Review the read-only
    plan, then use `--apply` within an authorized maintenance task. This preserves
    unrelated hooks/config bytes, backs up changed files, installs a verified
-   Skill-root pointer and adds a network-disabled diagnostics-only profile.
+   Skill-root pointer. It creates no persistent permission profiles.
    Native host discovery/trust remains a user-owned first-time action; setup
    never manufactures a trusted hash or changes the default permission mode.
+   Setup writes hooks and a root pointer; it does not install the personal Skill
+   packages themselves. The public checkout works through its Python scripts.
+   Installed Skill examples require separately installed, verified entrypoints
+   under the configured `skills_root`.
 2. **Once per project:** run `python <Mei>/scripts/mei.py attach --repo-root
    <actual-git-root> --context-id <explicit-id> --goal <current-task-goal>`,
    then `--apply` within the authorized scope. The installed maintenance Skill
    also exposes `entry.py connect attach ...`. New context creation reuses the
    existing locked writer and backs up/rebases only old index technical fields;
    no old semantic project is rewritten. Existing context IDs must be explicit.
-   Configuration approval can still be necessary outside the workspace; a
-   prompt or Skill cannot remove native permission/trust boundaries.
+   Attach changes only Mei enrollment/context files, never either host config.
+   Native sandbox initialization may still require a scoped user approval.
 
 Re-running either layer is a no-op when unchanged. No resident service, package
 installation or background model is needed. Default role is observer. To enroll
 the current agent as writer, explicitly supply `--role writer --host <gui1|gui2>
 --session-id <actual-current-session>`. An explicit `--host gui1` or `--host gui2`
-changes only that host's config.
-Host grants publish before the attachment; a denied config leaves the prior
-attachment and writer selection unchanged.
+identifies the writer host; it never edits that host's config.
 A foreign writer is not overwritten; `--takeover` requires explicit
 authorization and clean state. This is a
 cooperative lifecycle gate, not an OS lock preventing arbitrary edits by another
 agent. CAS/locks still protect continuity writes. The ordinary project grant
-stays unchanged; per-project context writes use a separate narrow native profile.
+stays unchanged. Each native worker receives a command-local `mei-worker`
+grant: `:read-only`, exactly one writable context directory, network disabled.
+It is not saved in `config.toml` or added to the permission menu. Existing
+attachment profile fields remain readable but no longer select a sandbox.
+Handoffs no longer need matching profile names in both host homes.
 Writer publication rechecks the context under its lifecycle/save lock; queued
 saves and lifecycle events recheck the attachment after acquiring that lock.
 A former writer cannot silently publish an already queued cooperative save
@@ -260,8 +309,28 @@ including when CODEX_HOME was absent and the default home was used; the parent
 environment is unchanged and another host is never selected as a fallback.
 An automatic compact Hook cannot synthesize unsaved reasoning. Stop
 requests one supplemental save only from the matching dirty writer, never a
-foreign/recovery context; PostCompact restores the last valid handoff. Mid-turn
+foreign/recovery context; SessionStart (source=compact) injects the last valid
+handoff as model context. PostCompact reports a UI/event-stream diagnostic,
+not model-visible additionalContext. Mid-turn
 automatic compact before such a save remains a declared limit, not a success.
+SessionStart now injects a `continuity_check` for the same agent (also included
+in the PostCompact diagnostic):
+before its next task action it must read the exact context through the installed
+reader, compare project/index hashes and saved generation, and inspect current
+project evidence before resuming mutations or replaying interrupted effects.
+The hook checks saved-record integrity but leaves semantic recovery and
+latest-progress coverage unverified; an injected instruction is not acceptance.
+The matching enrolled writer also receives a milestone checkpoint instruction:
+save changed bounded fields before the next long phase, with a fresh snapshot
+and readback, rather than relying only on Stop. Observer, recovery and terminal
+states never receive checkpoint permission. Successful checks need no user
+verification prompt; unresolved evidence or authorization gaps are reported once.
+These are same-agent instructions, not an OS-level tool gate or a guarantee of
+saving reasoning before every mid-turn compact. No transcript reader, background
+model, new profile or automatic reconcile is introduced; existing recovery debt
+still requires explicit authorization. Full Access does not bypass writer checks.
+An unenrolled project remains unenrolled: no recovery success is claimed, but
+the hook does not require enrollment or block its ordinary authorized work.
 Prompt submission conservatively marks the enrolled writer dirty, even for a
 read-only prompt. A resulting Stop request never overrides a no-write user
 instruction; an observer is preferable for repeated read-only inspections.
@@ -271,8 +340,11 @@ Any native approval belongs to the user; no wider fallback is selected.
 
 `python <Mei>/scripts/mei.py status --repo-root <actual-git-root>` is read-only.
 It reports context, writer, source-qualified permission labels and the latest
-metadata-only event receipts per repo/host. Setup selects a separate narrow
-diagnostics sandbox; denied recording is surfaced, never silently called saved.
+metadata-only event receipts per repo/host. Diagnostics use the same command-local
+worker with only `local/hook-events` writable; denied recording is surfaced.
+The one-off `_hook_diagnostics` writer and automatic external Obsidian
+projection worker are retired; historical receipts stay untouched. Direct-root
+vault checks remain read-only; external projections use explicit Obsidian sync.
 Receipts distinguish started/finished, skipped, not-attached and adapter failure;
 unobserved means unknown, **not** proof that a native event never fired. No prompt,
 transcript or semantic payload is logged. Native identity/trust and actual GUI
@@ -292,10 +364,10 @@ A reusable one-message project request is:
 
 The shared adapter supports SessionStart, UserPromptSubmit, PreCompact, PostCompact and Stop:
 
-- SessionStart supplies bounded memory and the selected task snapshot. Ambiguous selection requires a human choice; no context is auto-created.
+- SessionStart supplies bounded memory, the selected task snapshot and an agent recovery check, including source=compact. Ambiguous selection requires a human choice; no context is auto-created.
 - UserPromptSubmit marks dirty state only through the selected native writer and never saves the prompt.
 - Manual compact may stop on dirty state. Automatic compact fails open and records reconciliation debt.
-- PostCompact rereads state. Direct-root Obsidian operation needs no note projection.
+- PostCompact rereads state for UI/event-stream diagnostics; model injection uses SessionStart(source=compact). Direct-root Obsidian operation needs no note projection.
 - Stop may ask the current agent for one supplemental handoff, guarded by `stop_hook_active`. This uses `decision: "block"` with a continuation `reason`, **not** `continue: false`, which ends the turn. It reads no transcript, starts no separate model and does not complete the task.
 
 Each host must independently discover and trust the current hook definition. Installing or enabling hooks is not trust; see the [official hook and Stop protocol documentation](https://learn.chatgpt.com/docs/hooks). Never synthesize trust hashes, silently select broader permissions or bypass review. When hooks cannot run, manual reader/save commands remain available.
@@ -324,7 +396,7 @@ python -X utf8 -B $Entry save --repo-root . --context-id chosen-context --snapsh
 
 Only `handoff_saved` and `handoff_noop` are success. Reread stale/conflicting snapshots. Never handwrite `project.json`/`checkpointer.json` or call a task complete because a handoff was saved. A missing context requires an explicit maintenance request and entrypoint `create`; inspect `create_continuity.py --help` for expected index/hash requirements.
 
-When a fresh snapshot reports reconciliation debt after automatic compact, review the current bounded fields and explicitly pass `save --reconcile`. This does not bypass stale/base-hash checks; a stale snapshot still requires rereading.
+When a fresh snapshot reports reconciliation debt after automatic compact, inspect current task evidence and obtain explicit authorization before `save --reconcile`. The recovery hook never grants that authorization. This does not bypass stale/base-hash checks; a stale snapshot still requires rereading.
 
 Completion uses separate `complete_continuity.py checkpoint/export/retire/curator` operations and a selected context. Mutations require fresh snapshots. Export requires a human-reviewed redacted trajectory and is not automatic. The technical schema remains v0.1.0: Mei v2 accepts schema-validated v1 continuity release indexes without rewriting them.
 
@@ -363,15 +435,33 @@ For browsing, set Obsidian's **Editor → Default view for new tabs → Reading 
 Setting `paths.obsidian_vault`, creating `.obsidian/`, or passing `check_obsidian.py` does **not** register the folder with the desktop app. Confirm the app actually opens this exact folder, not the whole `memory/` protocol store. When retiring an old `obsidian-vault`, first review captures, settings and generated-file ownership; then remove its application registration and obsolete projection selection through an authorized maintenance path. Preserve its files until individually reviewed. A CLI refusing the old path does not prove that the app has stopped using it.
 
 ```powershell
-python scripts/sync_obsidian.py check --memory-root memory/markdown
-python scripts/sync_obsidian.py sync --memory-root memory/markdown --source-generation manual
-python scripts/check_obsidian.py --memory-root memory/markdown
-python scripts/sync_obsidian.py uri --memory-root memory/markdown --note project/example-note.md
+python scripts/sync_obsidian.py check
+python scripts/sync_obsidian.py sync --source-generation manual
+python scripts/check_obsidian.py
+# Requires an existing canonical note; substitute its actual category and ID:
+python scripts/sync_obsidian.py uri --note project/example-note.md
 ```
 
-Default direct-root sync/check validates the canonical files without creating `views/`, a second `index.md` or a projection manifest. URI returns a validated open-only link; it does not launch the GUI. Proposal cards live in `review/`; human captures may live in `inbox/`. `sync_obsidian.py import-inbox --note capture.md --reviewed-personal` imports one reviewed low-risk new note. Existing-note changes still require proposals.
+These commands use the configured absolute vault root. For an explicit Obsidian `--memory-root`/`--vault` override, supply an absolute path; a relative override is not accepted by the vault boundary.
 
-Explicit external-vault/namespace projection arguments are legacy compatibility interfaces, not the v2 default. A canonical vault cannot be another root's projection target or contain a nested projection namespace. Historical generated files are not automatically deleted or overwritten. Inspect ownership and drift before retiring any such file individually.
+Default direct-root sync/check validates the canonical files without creating `views/`, a second `index.md` or a projection manifest. URI returns a validated open-only link using an encoded absolute file `path`; it does not launch the GUI. Register the containing vault in Obsidian first. Do not pass an absolute directory as the `vault` name. See [Obsidian URI](https://help.obsidian.md/uri). Proposal cards live in `review/`; human captures may live in `inbox/`. `sync_obsidian.py import-inbox --note capture.md --reviewed-personal` imports one reviewed low-risk new note. Existing-note changes still require proposals.
+
+### Graph and internal links
+
+- Generated `MEMORY.md` links use vault-relative category paths, such as `[[project/example-note|example-note]]`, rather than a bare filename that can collide with an old `views/` copy. Legacy ID-only links remain readable. Canonical body links can use an ID or an exact `category/id` path, with optional `.md`, heading and display alias; doctor and the writer validate the actual category and active target.
+- After upgrading the index writer, explicitly run `python scripts/rebuild_registry.py` in maintenance scope. This rebuilds derived navigation, not memory claims or relation approvals. Ordinary read/check/sync never repairs links or changes graph settings.
+- If historical files crowd the graph, use the Graph view search filter below. It hides non-knowledge folders in that view without deleting, moving or promoting their contents. This filter is not a privacy boundary or the active-retrieval rule; category notes awaiting review can still be visible.
+- In the running Graph view, enable **Filters → Existing files only** and disable **Tags** and **Attachments** for note-only browsing. Keep **Orphans** enabled so genuinely unlinked notes remain visible. Under **Display**, lower **Text fade threshold** if labels disappear at the current zoom; zoom in to inspect individual notes. See the [official Graph view guide](https://help.obsidian.md/plugins/graph).
+
+```text
+-path:archive/ -path:views/ -path:review/ -path:proposals/ -path:inbox/ -path:index.md
+```
+
+The index supplies navigation edges, not evidence of semantic relationships. Mei stores typed reciprocal relations as validated IDs in YAML; plain IDs and relation objects are **not** Obsidian wikilinks. Use `python scripts/memory.py relations traverse example-note` for that logical graph. A note without real internal links can legitimately appear isolated; no code infers links from filenames or promotes archived evidence to make the graph look connected. Existing-note/body or relationship changes still require a reviewed proposal.
+
+Check the actual open vault, click an index link, inspect Backlinks and reopen Graph view when verifying a repair. A passing file check or a saved `.obsidian/graph.json` does not prove the running app loaded the change. Reload the Mei vault in Obsidian if needed; no CLI, remote-debugging port or community plugin is required for normal use.
+
+Explicit external-vault/namespace projection arguments are legacy compatibility interfaces, not the v2 default. Their generated index and body links target the selected vault-relative `views/` namespace, preserving headings/aliases and leaving canonical source bytes unchanged. A canonical vault cannot be another root's projection target or contain a nested projection namespace. Historical generated files are not automatically deleted or overwritten. Inspect ownership and drift before retiring any such file individually.
 
 ## Tools and management
 
@@ -418,6 +508,10 @@ python scripts/validate_repository.py
 Ordinary projects use `mei-project`: Mei is read-only except one eligible new redacted trajectory. `mei-maintainer` covers only the selected maintenance task, not credentials, other repositories, Git publication or automatic promotion. Agent rules, user records, host paths, local configuration, logs and screenshots/receipts stay out of public Git. Ignore rules do not untrack existing sensitive files; those require separate reviewed action.
 
 ## Development and verification
+
+### Contributing
+
+Keep changes scoped and add a synthetic regression for nontrivial behavior. Read the relevant policy and schema before changing a writer. Test fixtures must not contain personal memory, raw sessions, local paths or credentials. Do not publish `local/`, live memory, generated registries, trajectories, host configuration or screenshots. See [the public-path checker](scripts/check_public_git.py) and [third-party notices](THIRD_PARTY_NOTICES.md); do not introduce a dependency or license claim without reviewing it. No hosted CI status or native-GUI acceptance is implied by the commands below.
 
 ```powershell
 python -X utf8 -B -m unittest discover -s tests -v

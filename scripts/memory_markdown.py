@@ -238,6 +238,20 @@ def read_note(root: str | Path, locator: str, *, schema_root: str | Path | None 
     return note
 
 
+def _link_id(target: str, categories: dict[str, str] | None = None) -> str:
+    """Accept legacy IDs or an exact canonical vault path, never a projection."""
+    parts = target.strip().split("/")
+    memory_id = parts[-1]
+    if len(parts) == 2 and memory_id.endswith(".md"):
+        memory_id = memory_id[:-3]
+    if (len(parts) not in {1, 2} or not MEMORY_ID_PATTERN.fullmatch(memory_id)
+            or (len(parts) == 2 and parts[0] not in CATEGORIES)
+            or (categories is not None and (memory_id not in categories
+                or (len(parts) == 2 and categories[memory_id] != parts[0])))):
+        raise MemoryError(f"unsafe or missing link target: {target}")
+    return memory_id
+
+
 def _index_value(raw: bytes, path: Path) -> dict[str, Any]:
     if len(raw) > MAX_INDEX_BYTES:
         raise MemoryError(f"{path}: index exceeds {MAX_INDEX_BYTES} byte hard cap")
@@ -247,9 +261,7 @@ def _index_value(raw: bytes, path: Path) -> dict[str, Any]:
     _assert_private(text, path)
     ids = []
     for value in LINK_PATTERN.findall(text):
-        memory_id = value.strip()
-        if not MEMORY_ID_PATTERN.fullmatch(memory_id):
-            raise MemoryError(f"{path}: invalid index wikilink target: {memory_id}")
+        memory_id = _link_id(value)
         if memory_id not in ids:
             ids.append(memory_id)
     return {"path": INDEX_NAME, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "ids": ids, "text": text}
@@ -321,6 +333,9 @@ def doctor(root: str | Path, *, schema_root: str | Path | None = None) -> dict[s
             raise MemoryError(f"memory index points to missing notes: {', '.join(missing)}")
         if note_ids - set(memory["index"]["ids"]):
             raise MemoryError("active notes are missing from the memory index")
+        categories = {note["memory_id"]: note["category"] for note in memory["notes"]}
+        for target in LINK_PATTERN.findall(memory["index"]["text"]):
+            _link_id(target, categories)
         targets = set()
         for note in memory["notes"]:
             if note.get("review_required"):
@@ -328,10 +343,7 @@ def doctor(root: str | Path, *, schema_root: str | Path | None = None) -> dict[s
             body_links = set(LINK_PATTERN.findall(note["body"]))
             relationships = set(note.get("relationships", []))
             for target in body_links | relationships:
-                target = target.strip()
-                if not MEMORY_ID_PATTERN.fullmatch(target) or target not in note_ids:
-                    raise MemoryError(f"{note['path']}: unsafe or missing link target: {target}")
-                targets.add(target)
+                targets.add(_link_id(target, categories))
         from relations import check
         relations = check(root)
         if relations["status"] != "ok":
@@ -380,7 +392,8 @@ def _index_bytes(notes: list[dict[str, Any]]) -> bytes:
         lines.extend([f"## {category}", ""])
         for item in sorted(active, key=lambda value: value["memory_id"]):
             if item["category"] == category:
-                lines.append(f"- [[{item['memory_id']}]] {' '.join(item['scope'].split())}")
+                description = item.get("description", item["scope"])
+                lines.append(f"- [[{category}/{item['memory_id']}|{item['memory_id']}]] {' '.join(description.split())}")
         lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -428,11 +441,10 @@ def write_note(
                 raise MemoryError("relation changes require an approved reciprocal relation proposal")
             notes = [item for item in notes if item["memory_id"] != note["memory_id"]] + [note]
             active = [item for item in notes if item["status"] == "active" and not item.get("review_required")]
-            active_ids = {item["memory_id"] for item in active}
+            categories = {item["memory_id"]: item["category"] for item in active}
             for item in active:
                 for target in set(LINK_PATTERN.findall(item["body"])) | set(item.get("relationships", [])):
-                    if target.strip() not in active_ids:
-                        raise MemoryError("unsafe or missing link target in proposed memory")
+                    _link_id(target, categories)
             index_raw = _index_bytes(notes)
             _index_value(index_raw, index_path)  # Reject over-cap writes before touching the note.
             _assert_no_reparse(path.parent)
@@ -462,10 +474,10 @@ def write_note(
     return {"status": "written", "path": locator.replace("\\", "/"), "sha256": hashlib.sha256(raw).hexdigest(), "doctor": doctor(memory_root, schema_root=schema_root)}
 
 
-def memory_digest(root: str | Path) -> dict[str, Any]:
+def memory_digest(root: str | Path, *, schema_root: str | Path | None = None) -> dict[str, Any]:
     """Return the bounded index for host startup; never raises (fail-open)."""
     try:
-        report = doctor(root)
+        report = doctor(root, schema_root=schema_root)
         if report["status"] != "ok":
             raise MemoryError(report["error"])
         index = read_index(root)
@@ -528,8 +540,11 @@ def _cli() -> int:
         elif args.command == "doctor":
             result = doctor(args.root)
         elif args.command == "read":
-            result = read_memory(args.root, set(args.ids) if args.ids else None)
-            result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
+            if args.ids:
+                result = read_memory(args.root, set(args.ids))
+                result["notes"] = [{key: value for key, value in note.items() if key != "sha256"} for note in result["notes"]]
+            else:
+                result = memory_digest(args.root)
         else:
             if not args.reviewed_personal:
                 raise MemoryError("explicit --reviewed-personal confirmation is required")
@@ -538,7 +553,7 @@ def _cli() -> int:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result.get("status") not in {"invalid", "error"} else 1
+    return 0 if result.get("status") not in {"invalid", "error", "unavailable"} else 1
 
 
 if __name__ == "__main__":

@@ -14,6 +14,11 @@ repository code and user instructions supersede old memory.
 Use `profile` for stable personal background, `preferences` for expressed work choices, `domain` for scoped facts, and `procedural` for reusable actions or failure boundaries. Markdown notes may additionally use `project` and `feedback` scopes. Keep claims short and source-specific. Do not promote an old source path or prior summary into a current implementation claim without current verification. No secret values or raw private content enter memory.
 
 `MEMORY.md` is a bounded index, not a transcript or a second full corpus. A
+single-line YAML `description` (1–240 characters; legacy fallback: `scope`)
+provides its retrieval cue. Startup and no-ID CLI reads return only the bounded
+index; search returns discovery metadata. Note bodies require explicit IDs.
+Local validation or matching may inspect files without returning their bodies
+to model context. Internal whole-corpus maintenance is a separate API. A
 personal writer may create one reviewed low-risk note after checking its scope,
 stable ID, frontmatter, size, links, and privacy. Existing-note changes require
 the shared approved proposal handler. Archive or supersede an

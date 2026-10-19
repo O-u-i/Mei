@@ -43,6 +43,64 @@ def note(memory_id: str, category: str, body: str, *, relationships: list[str] |
 
 
 class MarkdownMemoryTests(unittest.TestCase):
+    def test_description_first_discovery_requires_explicit_id_for_bodies(self):
+        import json
+        import subprocess
+        from memory_markdown import memory_digest, parse_note
+
+        root = fixture_root()
+        initialize_memory(root)
+        content = note("discovery-note", "project", "BODY_SENTINEL: detailed evidence is not startup context.")
+        content = content.replace("scope: test scope", "scope: test scope\ndescription: Use for a scoped discovery test.")
+        write_note(root, "project/discovery-note.md", content)
+        digest = memory_digest(root)
+        self.assertIn("Use for a scoped discovery test.", digest["text"])
+        self.assertNotIn("BODY_SENTINEL", json.dumps(digest))
+        self.assertLessEqual(len(digest["text"].encode()), 16384)
+        for script in ("memory.py", "memory_markdown.py"):
+            command = [sys.executable, "-X", "utf8", "-B", str(ROOT / "scripts" / script), "read", "--root", str(root)]
+            discovery = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(discovery.returncode, 0, discovery.stdout)
+            self.assertNotIn("BODY_SENTINEL", discovery.stdout)
+            self.assertNotIn("notes", json.loads(discovery.stdout))
+            detail = subprocess.run(command + ["--id", "discovery-note"], capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(detail.returncode, 0, detail.stdout)
+            self.assertIn("BODY_SENTINEL", detail.stdout)
+        for invalid in ("", "x" * 241, "first\nsecond"):
+            import yaml
+            bad = content.replace("description: Use for a scoped discovery test.", "description: " + yaml.safe_dump(invalid, default_style="\"").strip())
+            with self.subTest(description=invalid), self.assertRaises(MemoryError):
+                parse_note(bad, Path("project/discovery-note.md"))
+
+    def test_index_targets_canonical_path_despite_legacy_duplicate(self):
+        root = fixture_root()
+        initialize_memory(root)
+        write_note(root, "project/sample-note.md", note("sample-note", "project", "Safe."))
+        (root / "views").mkdir()
+        duplicate = root / "views/sample-note.md"
+        duplicate.write_text("Legacy projection; preserve it.", encoding="utf-8")
+        index = (root / "MEMORY.md").read_text(encoding="utf-8")
+        self.assertIn("[[project/sample-note|sample-note]]", index)
+        self.assertEqual(read_memory(root)["index"]["ids"], ["sample-note"])
+        self.assertEqual(doctor(root)["status"], "ok")
+        self.assertEqual(duplicate.read_text(encoding="utf-8"), "Legacy projection; preserve it.")
+
+    def test_qualified_links_validate_actual_category_and_preserve_old_ids(self):
+        root = fixture_root()
+        initialize_memory(root)
+        write_note(root, "project/target-note.md", note("target-note", "project", "Safe."))
+        result = write_note(root, "project/source-note.md", note("source-note", "project",
+                            "[[project/target-note.md#Claim|target]] and [[target-note]]."))
+        self.assertEqual(result["doctor"]["status"], "ok")
+        before = (root / "MEMORY.md").read_bytes()
+        for target in ("preferences/target-note", "views/target-note", "../project/target-note"):
+            with self.subTest(target=target), self.assertRaisesRegex(MemoryError, "link target"):
+                write_note(root, "project/broken-note.md", note("broken-note", "project", f"[[{target}]]"))
+        self.assertEqual((root / "MEMORY.md").read_bytes(), before)
+        self.assertFalse((root / "project/broken-note.md").exists())
+        (root / "MEMORY.md").write_text("- [[preferences/target-note]]", encoding="utf-8")
+        self.assertEqual(doctor(root)["status"], "invalid")
+
     def test_index_uses_lf_and_external_line_ending_changes_remain_visible(self):
         root = fixture_root()
         initialize_memory(root)

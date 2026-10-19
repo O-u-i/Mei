@@ -18,9 +18,9 @@ from pathlib import Path
 
 from _common import ROOT
 from check_continuity import (ContinuityError, MAX_INDEX_LINES, MAX_PROJECT_BYTES, _assert_no_reparse, _assert_private,
-                              _check_context_id, _read_json, _read_yaml, _validate, load_context, repo_id_for)
+                              _check_context_id, _read_json, _read_yaml, _safe_relative_path, _validate, load_context, repo_id_for)
 from checkpoint_continuity import _context_lock, _replace_record, _record_bytes
-from continuity_adapters import _attachment, select_context
+from continuity_adapters import _attachment, _native_sandbox_command, select_context
 from create_continuity import create_context
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreCompact", "PostCompact", "Stop")
@@ -115,21 +115,6 @@ def setup(root, hosts, *, apply=False):
                 groups.append({"hooks": [wanted]})
         new = old if old and json.loads(old) == value else _encoded(value)
         changes.append((hooks, old, new))
-        settings = home / "config.toml"
-        raw = _bytes(settings)
-        if raw is None:
-            raise ContinuityError("setup requires an existing Codex config")
-        parsed = tomllib.loads(raw.decode("utf-8"))
-        profile = "mei-hook-diagnostics"
-        grant = {"extends": ":read-only", "filesystem": {str(root / "local/hook-events"): "write"},
-                 "network": {"enabled": False}}
-        existing = parsed.get("permissions", {}).get(profile)
-        if existing is not None and existing != grant:
-            raise ContinuityError("diagnostics profile differs; review instead of broadening")
-        addition = (f"\n[permissions.{profile}]\nextends = \":read-only\"\n"
-                    f"[permissions.{profile}.filesystem]\n{json.dumps(str(root / 'local/hook-events'))} = \"write\"\n"
-                    f"[permissions.{profile}.network]\nenabled = false\n").encode()
-        changes.append((settings, raw, raw if existing else raw + addition))
         installed.append({"host": host, "home": str(home), "events": list(EVENTS),
                           "discovery": "unverified", "trust": "requires_native_host_review"})
     skills = Path(config["paths"]["skills_root"])
@@ -144,7 +129,7 @@ def setup(root, hosts, *, apply=False):
     marker = root / "local/host-setup.json"
     old = _bytes(marker)
     previous = json.loads(old) if old else {"hosts": {}}
-    previous["diagnostics_profile"] = "mei-hook-diagnostics"
+    previous.pop("diagnostics_profile", None)  # Retire the persistent worker profile.
     for item in installed:
         previous["hosts"][item["host"]] = item
     changes.append((marker, old, old if old and json.loads(old) == previous else _encoded(previous)))
@@ -168,7 +153,7 @@ def _repository(path):
 
 def attach(root, repo, *, context_id="project", goal=None, host=None, session_id=None,
            role="observer", takeover=False, apply=False):
-    config = _config(root)
+    _config(root)
     repo = _repository(repo)
     _check_context_id(context_id)
     repo_id = repo_id_for(repo)
@@ -207,32 +192,13 @@ def attach(root, repo, *, context_id="project", goal=None, host=None, session_id
         if writer and writer != requested and (not takeover or not state or state["status"] != "clean"):
             raise ContinuityError("writer already selected; explicit takeover requires clean state")
         writer = requested
-    profile = "mei-context-" + repo_id[5:]
     value = {"repo_id": repo_id, "repo_root": str(repo), "context_id": context_id,
-             "permission_profile": profile, "writer": writer}
+             "writer": writer}
     _assert_private(value, path)
     changes = [(path, old, old if previous == value else _encoded(value))]
     context_dir = root / f"memory/continuity/{repo_id}/{context_id}"
     if host not in {None, "gui1", "gui2", "all"}:
         raise ContinuityError("unknown attachment host")
-    for surface in ((host,) if host in {"gui1", "gui2"} else ("gui1", "gui2")):
-        home = Path(config["paths"][f"codex_home_{surface}"])
-        settings = home / "config.toml"
-        raw = _bytes(settings)
-        if raw is None:
-            raise ContinuityError("run host setup with an existing Codex config first")
-        parsed = tomllib.loads(raw.decode("utf-8"))
-        grant = {"extends": ":read-only", "filesystem": {str(context_dir): "write"}, "network": {"enabled": False}}
-        permissions = parsed.get("permissions", {})
-        existing = permissions.get(profile)
-        if existing is not None and existing != grant:
-            raise ContinuityError("context profile differs; never silently broaden an existing profile")
-        addition = (f"\n[permissions.{profile}]\nextends = \":read-only\"\n"
-                    f"[permissions.{profile}.filesystem]\n{json.dumps(str(context_dir))} = \"write\"\n"
-                    f"[permissions.{profile}.network]\nenabled = false\n").encode()
-        proposed = raw if existing else raw + addition
-        tomllib.loads(proposed.decode("utf-8"))
-        changes.append((settings, raw, proposed))
     rebase = [e["checkpointer_path"] for e in index["entries"]] if creation else []
     result = {"status": "attach", "repo_id": repo_id, "context_id": context_id, "writer": writer,
               "creation_required": creation, "technical_index_rebase": rebase,
@@ -243,18 +209,12 @@ def attach(root, repo, *, context_id="project", goal=None, host=None, session_id
                    "status": "active", "goal": goal, "decisions": [], "constraints": [], "blockers": [],
                    "next_step": "Await the explicitly selected project writer and its current task.",
                    "stable_refs": [], "updated_at": datetime.now(timezone.utc).isoformat()}
-        # Invalid/private task text fails even the plan, before host config edits.
+        # Invalid/private task text fails even the read-only plan.
         _record_bytes(project, "continuity-project.schema.json", context_dir / "project.json", MAX_PROJECT_BYTES)
     if creation and apply:
-        # Profiles are inert until the last attachment publication. If native
-        # approval is missing, fail before rebasing any existing context.
-        result["configuration"] = _publish(root, changes[1:], True)
         result["creation"] = create_context(repo, context_id, project, mei_root=root,
             expected_index_sha256=hashlib.sha256(raw_index).hexdigest() if raw_index else None,
             writer_session_id="explicit-attach", rebase_index=True)
-    # Publish host grants before selecting the writer, also for an existing
-    # context. A denied config must leave the previous attachment untouched.
-    publication = changes[:1] if creation and apply else changes[1:] + changes[:1]
     if apply and not creation and writer != (previous.get("writer") if previous else None):
         # Serialize a writer transfer with both lifecycle events and saves.
         # A clean preflight is stale as soon as the old writer submits a prompt.
@@ -262,9 +222,9 @@ def attach(root, repo, *, context_id="project", goal=None, host=None, session_id
             fresh = load_context(repo, context_id, mei_root=root)
             if fresh["status"] != "clean" or fresh["checkpointer"] != state["checkpointer"]:
                 raise ContinuityError("context changed before writer publication; reread and retry explicitly")
-            result.update(_publish(root, publication, True))
+            result.update(_publish(root, changes, True))
     else:
-        result.update(_publish(root, publication, apply))
+        result.update(_publish(root, changes, apply))
     result["health"] = status(root, repo) if apply else {"status": "plan_only"}
     return result
 
@@ -297,6 +257,7 @@ def save_enrolled(root, repo, context_id, snapshot, project, *, writer_session_i
     """Narrow native sandbox for an enrolled writer; no fallback to ambient access."""
     config = _config(root)
     repo = _repository(repo)
+    _check_context_id(context_id)
     attached = _attachment(root, repo)
     if not attached:
         raise ContinuityError("project is not attached")
@@ -332,7 +293,8 @@ def save_enrolled(root, repo, context_id, snapshot, project, *, writer_session_i
         raise ContinuityError("native save input unavailable or invalid; no fallback was attempted") from None
     if len(payload.encode("utf-8")) > 1_048_576:
         raise ContinuityError("native save input exceeds its hard cap")
-    command = [str(executable), "sandbox", "-P", attached["permission_profile"], "-C", str(repo)]
+    context_dir = _safe_relative_path(root, f"memory/continuity/{repo_id_for(repo)}/{context_id}", "context")
+    command = _native_sandbox_command(executable, repo, context_dir)
     layered = config.get("host", {}).get(f'codex_config_profile_{writer["host"]}')
     if layered:
         command.extend(["--profile", layered])

@@ -15,16 +15,13 @@ import os
 import re
 import subprocess
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 if __package__:  # Support package imports from the repository root.
-    from ._common import publish_new_file
     from .check_continuity import ContinuityError, _assert_no_reparse, _safe_relative_path, load_context
 else:  # Support direct imports when ``scripts`` is on ``sys.path``.
-    from _common import publish_new_file
     from check_continuity import ContinuityError, _assert_no_reparse, _safe_relative_path, load_context
 
 
@@ -51,9 +48,9 @@ def _attachment(mei_root: Path, repo_root: Path) -> dict[str, Any] | None:
     value, _ = _read_json(path, 8192)
     if value.get("repo_id") != repo_id or Path(value.get("repo_root", "")).resolve() != repo_root.resolve():
         raise ContinuityError("attachment repository mismatch")
-    expected_profile = "mei-context-" + repo_id[5:]
     writer = value.get("writer")
-    if (value.get("permission_profile") != expected_profile
+    # Read old attachments without mutating evidence; new ones store no profile.
+    if (value.get("permission_profile") not in (None, "mei-context-" + repo_id[5:])
             or not isinstance(value.get("context_id"), str)
             or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,79}", value["context_id"])
             or (writer is not None and (not isinstance(writer, dict) or set(writer) != {"host", "session_id"}
@@ -63,13 +60,21 @@ def _attachment(mei_root: Path, repo_root: Path) -> dict[str, Any] | None:
     return value
 
 
+def _native_sandbox_command(executable: Path, repo: Path, write_root: Path) -> list[str]:
+    """One invocation-local worker grant, never a host-global menu entry."""
+    _assert_no_reparse(write_root)
+    grant = ('permissions.mei-worker={extends=":read-only",filesystem={'
+             + json.dumps(str(write_root.resolve())) + '="write"},network={enabled=false}}')
+    return [str(executable), "sandbox", "-P", "mei-worker", "-c", grant, "-C", str(repo)]
+
+
 def _event_receipt(args, envelope, host, *, wire=None, error=None):
     """Five latest metadata receipts per repo/host, no prompts or transcript text.
 
     These record adapter observations, NOT host authenticity or effective grants.
     No receipt means unknown, not proof that the host never fired an event.
     """
-    if args.lifecycle_child or args.projection_child:
+    if args.lifecycle_child:
         return "disabled"
     if (_local_config(args.mei_root).get("host", {}).get("event_diagnostics") is not True
             and not (args.mei_root / "local/host-setup.json").is_file()):
@@ -77,18 +82,11 @@ def _event_receipt(args, envelope, host, *, wire=None, error=None):
     try:
         marker = args.mei_root / "local/host-setup.json"
         if marker.is_file() and not args.diagnostic_child:
-            if __package__:
-                from .check_continuity import _read_json
-            else:
-                from check_continuity import _read_json
-            selected = _read_json(marker, 8192)[0].get("diagnostics_profile")
-            if selected != "mei-hook-diagnostics":
-                return "profile_not_selected"
             config = _local_config(args.mei_root)
             executable = Path(config.get("paths", {}).get("codex_cli", ""))
             if not executable.is_absolute() or not executable.is_file():
                 return "native_sandbox_unavailable"
-            command = [str(executable), "sandbox", "-P", selected, "-C", str(args.repo_root)]
+            command = _native_sandbox_command(executable, args.repo_root, args.mei_root / "local/hook-events")
             layered = config.get("host", {}).get(f"codex_config_profile_{host}")
             if layered:
                 command.extend(["--profile", layered])
@@ -97,6 +95,9 @@ def _event_receipt(args, envelope, host, *, wire=None, error=None):
                             "--host", host, "--diagnostic-child"])
             # Only allowlisted technical metadata crosses this boundary.
             payload = {key: envelope[key] for key in ("hook_event_name", "trigger", "session_id", "stop_hook_active") if key in envelope}
+            source = envelope.get("source")
+            if isinstance(source, str) and source in {"startup", "resume", "clear", "compact", "fork"}:
+                payload["source"] = source
             payload["finished"] = wire is not None
             payload["allow"] = wire.get("continue", True) if wire else True
             payload["save_requested"] = wire.get("decision") == "block" if wire else False
@@ -134,6 +135,9 @@ def _event_receipt(args, envelope, host, *, wire=None, error=None):
                  "trigger": envelope.get("trigger") if envelope.get("trigger") in {"auto", "manual"} else "unspecified",
                  "session_sha256": hashlib.sha256(str(envelope.get("session_id", "")).encode()).hexdigest(),
                  "permission_source": "hook_process_environment", "effective_permissions_verified": False}
+        if event == "SessionStart":
+            value["source"] = (envelope.get("source") if isinstance(envelope.get("source"), str) and envelope.get("source") in
+                               {"startup", "resume", "clear", "compact", "fork"} else "unspecified")
         if event == STOP_EVENT:
             value["stop_hook_active"] = envelope.get("stop_hook_active") is True
         if args.diagnostic_child and finished:
@@ -328,35 +332,117 @@ def _refresh_projection(mei_root: Path, generation: Any) -> dict[str, Any]:
             "added": result["added"], "updated": result["updated"]}
 
 
-def _sandboxed_hook(args: argparse.Namespace, envelope: dict[str, Any], host: str, actual_home: Path,
-                    context_id: str | None, *, selection: str, profile_name: str, child_flag: str) -> dict[str, Any] | None:
-    """A separately selected native writer, not an ambient profile-name guess.
+def _continuity_check(state, *, event, checkpoint_allowed, source=None, selection_status=None):
+    """Read-time evidence and same-agent instructions, never a recovery receipt.
 
-    Hook envelopes do not promise a named permission profile. A configured local
-    lifecycle writer therefore executes inside the real native sandbox. The
-    executable/profile selection is machine-local and explicitly user-reviewed.
+    ponytail: a command hook cannot author a semantic checkpoint before mid-turn
+    compact; use milestone saves, not another model or a transcript reader.
     """
+    check = {"source_event": event, "source": source if isinstance(source, str) and source in
+             {"startup", "resume", "clear", "compact", "fork"} else "unspecified",
+             "status": "blocked", "handoff_integrity": False,
+             "recovery_verified": False, "latest_progress_verified": False,
+             "checkpoint_allowed": False}
+    if state is None and selection_status == "context_missing":
+        check.update(status="not_attached", instructions=[
+            "No Mei handoff is selected; do not claim continuity recovery. Continue the current user task within "
+            "existing permissions without requiring Mei enrollment. Do not create or select a context automatically."])
+        return check
+    instructions = [
+        "Do not wait for a user verification prompt. Before the next task action, perform this recovery check yourself; "
+        "do not start a task merely because an old handoff was injected. Current user instructions take precedence.",
+    ]
+    if state is None:
+        instructions.append(
+            "Do not resume task mutations: the selected context is missing, ambiguous or invalid. "
+            "Inspect only the authorized project's continuity configuration read-only; report an unresolved blocker once. "
+            "Do not guess a context, create one, take over a writer or change permissions.")
+    else:
+        cp = state["checkpointer"]
+        integrity = (cp["project_sha256"] == state["project_sha256"]
+                     and cp["index_sha256"] == state["index_sha256"]
+                     and cp["index_bytes"] == state["index_bytes"]
+                     and cp["index_lines"] == state["index_lines"])
+        readable = integrity and state["status"] in {"clean", "dirty", "needs_reconcile"}
+        check.update(
+            status="pending_agent_readback" if readable else "blocked", handoff_integrity=integrity,
+            checkpoint_allowed=checkpoint_allowed and state["status"] in {"clean", "dirty"} and integrity,
+            expected={key: state[key] for key in ("repo_id", "context_id", "project_sha256", "index_sha256")},
+        )
+        check["expected"].update(generation=cp["generation"], synced_generation=cp["synced_generation"],
+                                 dirty=cp["dirty"], needs_reconcile=state["needs_reconcile"])
+        instructions.extend([
+            "First identify repo/context, saved hash, synced_generation, goal, constraints and next step from THIS "
+            "injection, not from a generic compact summary. Injection is not proof of successful semantic recovery.",
+            "Read a fresh snapshot through the installed mei-continuity entrypoint check for this exact repo/context. "
+            "Compare the expected repo/context, project/index hashes and synced_generation. Recheck generation and status; "
+            "lifecycle metadata may advance generation without a new semantic save. Drift requires read-only investigation, "
+            "not overwriting newer state. Do not call recovery verified before this comparison.",
+            "Check current user intent and the authorized project's actual files/diff, recorded test results and evidence "
+            "of any interrupted operation before resuming mutations. Do not blindly replay deployments, sends or other "
+            "external effects. A matching hash or clean status does not prove coverage of unsaved reasoning. "
+            "When the readback and task evidence agree, continue the authorized task without asking for routine acceptance. "
+            "Report only an unresolved gap or required authorization once.",
+            "Do not automatically reconcile, clear debt, save, create or retire a context, promote memory, change "
+            "permissions or take over a writer as part of this check. needs_reconcile after automatic compact is not "
+            "itself recovery failure, but remains explicit recovery debt. Latest-progress coverage stays unverified "
+            "unless the task evidence actually establishes it.",
+        ])
+        if not readable:
+            instructions.append(
+                "Do not resume task mutations: handoff integrity, conflict, stale or terminal state needs explicit review.")
+        if check["checkpoint_allowed"]:
+            instructions.append(
+                "After a meaningful task milestone and before the next long phase, recheck current writer ownership "
+                "and save changed bounded task fields through the installed mei-continuity save entrypoint with a fresh "
+                "snapshot. Respect no-write requests. Read back handoff_saved or handoff_noop, hashes, generation, "
+                "synced_generation, dirty and needs_reconcile; do not wait only for Stop. A denied save is not success "
+                "and must not fall back to ambient writes. Mid-turn compact can still precede the next checkpoint.")
+        else:
+            instructions.append(
+                "Do not save or take over: this reader has no matching enrolled checkpoint grant or the context "
+                "requires explicit recovery. Read-only verification is allowed; checkpointing needs separately valid "
+                "writer ownership and state, never a Full Access assumption.")
+    check["instructions"] = instructions
+    return check
+
+
+def _sandboxed_lifecycle(args: argparse.Namespace, envelope: dict[str, Any], host: str, actual_home: Path,
+                         context_id: str) -> dict[str, Any] | None:
+    """Explicit writer selection, invocation-local native filesystem grant."""
     config = _local_config(args.mei_root)
-    profile = config.get("host", {}).get(selection)
+    profile = config.get("host", {}).get("continuity_lifecycle_profile")
     attached = _attachment(args.mei_root, args.repo_root)
-    if attached and selection == "continuity_lifecycle_profile":
+    if attached:
         writer = attached.get("writer")
         if not writer or writer != {"host": host, "session_id": envelope.get("session_id")}:
             return None
-        profile = profile_name = attached["permission_profile"]
+        profile = "mei-worker"
     if profile is None or profile is False:
         return None
-    if profile != profile_name:
+    if profile != ("mei-worker" if attached else "mei-continuity-writer"):
         raise ContinuityError("unsupported lifecycle writer selection")
     executable = Path(config.get("paths", {}).get("codex_cli", ""))
     if not executable.is_absolute() or not executable.is_file():
         raise ContinuityError("native lifecycle sandbox executable is unavailable")
-    command = [str(executable), "sandbox", "-P", profile, "-C", str(args.repo_root)]
+    if __package__:
+        from .check_continuity import repo_id_for
+    else:
+        from check_continuity import repo_id_for
+    if attached and context_id != attached["context_id"]:
+        raise ContinuityError("lifecycle context differs from attachment")
+    if attached:
+        directory = _safe_relative_path(args.mei_root,
+            f"memory/continuity/{repo_id_for(args.repo_root)}/{context_id}", "context")
+        command = _native_sandbox_command(executable, args.repo_root, directory)
+    else:
+        # Legacy opt-in keeps its reviewed grant; never expand it from a label.
+        command = [str(executable), "sandbox", "-P", profile, "-C", str(args.repo_root)]
     selected_config = config.get("host", {}).get(f"codex_config_profile_{host}")
     if selected_config:
         command.extend(["--profile", selected_config])
     command.extend(["--", sys.executable, "-X", "utf8", "-B", str(Path(__file__).resolve()),
-                    "--repo-root", str(args.repo_root), "--mei-root", str(args.mei_root), "--host", host, child_flag])
+                    "--repo-root", str(args.repo_root), "--mei-root", str(args.mei_root), "--host", host, "--lifecycle-child"])
     if context_id:
         command.extend(["--context-id", context_id])
     metadata = {key: envelope[key] for key in ("hook_event_name", "cwd", "session_id", "trigger") if key in envelope}
@@ -378,115 +464,6 @@ def _sandboxed_hook(args: argparse.Namespace, envelope: dict[str, Any], host: st
     if not isinstance(wire, dict) or not isinstance(wire.get("continue"), bool):
         raise _LifecycleFailure("response")
     return wire
-
-
-def _sandboxed_lifecycle(args: argparse.Namespace, envelope: dict[str, Any], host: str, actual_home: Path,
-                         context_id: str) -> dict[str, Any] | None:
-    return _sandboxed_hook(args, envelope, host, actual_home, context_id,
-                           selection="continuity_lifecycle_profile", profile_name="mei-continuity-writer",
-                           child_flag="--lifecycle-child")
-
-
-def _publish_precompact_receipt(path: Path, value: dict[str, Any]) -> None:
-    """Publish bounded metadata atomically, never replace a receipt or protocol file."""
-    raw = (json.dumps(value, allow_nan=False) + "\n").encode("utf-8")
-    if len(raw) > 2048:
-        raise ValueError("diagnostic receipt exceeds its hard cap")
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    _assert_no_reparse(temporary)
-    owned = False
-    try:
-        with temporary.open("xb") as stream:
-            owned = True
-            stream.write(raw)
-            stream.flush()
-            os.fsync(stream.fileno())
-        _assert_no_reparse(path)
-        publish_new_file(temporary, path)
-    finally:
-        if owned:
-            temporary.unlink(missing_ok=True)  # Only this invocation's exact temporary file.
-
-
-def _start_precompact_diagnostic(args: argparse.Namespace, envelope: dict[str, Any], host: str,
-                                 actual_home: Path, context_id: str | None) -> tuple[Path, int] | None:
-    """Opt-in, one manual parent invocation per host/repo/context/run binding.
-
-    The exclusive run directory consumes the run-id even if a receipt fails.
-    Absence of a receipt is never proof that a native hook did not run.
-    """
-    try:
-        if envelope.get("hook_event_name") != "PreCompact" or envelope.get("trigger") != "manual" or args.lifecycle_child or args.projection_child:
-            return None
-        config = _local_config(args.mei_root)
-        selected = config.get("host", {}).get("precompact_diagnostics", {})
-        if not isinstance(selected, dict) or selected.get("enabled") is not True:
-            return None
-        if set(selected) != {"enabled", "host", "repo_id", "context_id", "run_id"}:
-            return None
-        run_id = selected["run_id"]
-        if not isinstance(run_id, str) or not re.fullmatch(r"[a-f0-9]{32}", run_id):
-            return None
-        home = config.get("paths", {}).get(f"codex_home_{host}")
-        if selected["host"] != host or selected["context_id"] != context_id or not isinstance(home, str) or not Path(home).is_absolute():
-            return None
-        if Path(home).resolve() != actual_home.resolve():
-            return None
-        state = load_context(args.repo_root, context_id, mei_root=args.mei_root)
-        if state["repo_id"] != selected["repo_id"] or state["context_id"] != selected["context_id"]:
-            return None
-        directory = _safe_relative_path(Path(args.mei_root),
-                                       f'memory/continuity/{state["repo_id"]}/{state["context_id"]}', "context")
-        run = _safe_relative_path(directory, f"_hook_diagnostics/{run_id}", "diagnostic run")
-        run.parent.mkdir(exist_ok=True)
-        _assert_no_reparse(run)
-        run.mkdir()  # Exclusive claim: concurrent/subsequent invocations cannot reuse this run-id.
-        generation = state["checkpointer"]["generation"]
-        _publish_precompact_receipt(run / "started.json", {
-            "event": "PreCompact", "stage": "bound", "time": datetime.now(timezone.utc).isoformat(),
-            "generation": generation,
-        })
-        return run, generation
-    except Exception:
-        return None  # Optional diagnostics never affect the hook's decision or output.
-
-
-def _finish_precompact_diagnostic(receipt: tuple[Path, int] | None, wire: dict[str, Any],
-                                  failure: Exception | None = None) -> None:
-    if receipt is None:
-        return
-    try:
-        run, generation = receipt
-        value: dict[str, Any] = {
-            "event": "PreCompact", "stage": "result", "time": datetime.now(timezone.utc).isoformat(),
-            "generation": generation, "allow": wire["continue"], "reason": "unclassified_response",
-        }
-        if failure is not None:
-            value.update(stage="adapter_failure", reason="unavailable")
-            if isinstance(failure, _LifecycleFailure):
-                value["stage"] = failure.diagnostic["stage"]
-                for key in ("exit_code", "errno", "winerror"):
-                    if type(failure.diagnostic.get(key)) is int:
-                        value[key] = failure.diagnostic[key]
-        else:
-            message = wire.get("systemMessage", "")
-            if isinstance(message, str) and len(message) <= 4096:
-                if message.startswith("Mei continuity: "):
-                    result = json.loads(message[len("Mei continuity: "):])
-                    if isinstance(result, dict) and result.get("event") == "precompact_manual" and result.get("allow") is wire["continue"]:
-                        if isinstance(result.get("reason"), str) and result["reason"] in {"clean", "sync_required", "completed_context", "lock_timeout", "record_failed"}:
-                            value["reason"] = result["reason"]
-                        if type(result.get("generation")) is int and result["generation"] >= 0:
-                            value["generation"] = result["generation"]
-                elif message.startswith("Mei continuity unavailable;"):
-                    value.update(stage="child_unavailable", reason="unavailable")
-                elif message.startswith("Mei continuity (read-only witness): "):
-                    value["reason"] = "read_only_witness"
-        _publish_precompact_receipt(run / "result.json", value)
-    except Exception:
-        pass  # Keep the original allow/block result even if receipt publication fails.
-
-
 def read_context(
     repo_root: str | Path,
     context_id: str,
@@ -567,7 +544,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--codex-home", type=Path, help="Optional: restrict lifecycle writes to one CODEX_HOME.")
     parser.add_argument("--diagnose", action="store_true", help="Read-only host/context/memory diagnostics; no hook input or writes.")
     parser.add_argument("--lifecycle-child", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--projection-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--diagnostic-child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     actual_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
@@ -603,7 +579,6 @@ def main(argv: list[str] | None = None) -> int:
     event = None
     automatic = False
     startup = False
-    diagnostic = None
     envelope = {}
     try:
         raw = sys.stdin.buffer.read(65_537)
@@ -636,30 +611,20 @@ def main(argv: list[str] | None = None) -> int:
         # Preserve the validated selection in parent diagnostic receipts too;
         # native hooks normally omit the optional --context-id argument.
         args.context_id = context_id
-        if not args.lifecycle_child and not args.projection_child:
+        if not args.lifecycle_child:
             _event_receipt(args, envelope, host)
-        diagnostic = _start_precompact_diagnostic(args, envelope, host, actual_home, context_id)
-        projection_failure = None
-        direct_vault = event == "PostCompact" and _direct_vault(args.mei_root)
-        if event == "PostCompact" and not direct_vault and not args.projection_child:
-            try:
-                projected = _sandboxed_hook(args, envelope, host, actual_home, context_id,
-                                           selection="obsidian_projection_profile", profile_name="mei-obsidian-projection",
-                                           child_flag="--projection-child")
-            except ContinuityError:
-                projected = None
-                projection_failure = {"status": "obsidian_projection_stale", "reason": "native_projection_sandbox_unavailable"}
-            if projected is not None:
-                _emit(args, envelope, host, projected)
-                return 0
         if event in READ_EVENTS:
+            state = None
             context: dict[str, Any] = {"host": host, "codex_home": str(actual_home)}
             context["permission_report"] = {
                 "value": os.environ.get("CODEX_PERMISSION_PROFILE", "unreported"),
                 "source": "hook_process_environment", "verified": False,
                 "effective_permissions": "not_inspected",
             }
-            context["lifecycle_writer"] = _local_config(args.mei_root).get("host", {}).get("continuity_lifecycle_profile", "not_selected")
+            attached = _attachment(args.mei_root, args.repo_root)
+            context["lifecycle_writer"] = ("attached_context_worker" if attached and attached.get("writer")
+                else "not_selected" if attached else
+                _local_config(args.mei_root).get("host", {}).get("continuity_lifecycle_profile", "not_selected"))
             if context_id:
                 try:
                     state = read_context(args.repo_root, context_id, host=host, mei_root=args.mei_root)
@@ -673,9 +638,20 @@ def main(argv: list[str] | None = None) -> int:
             if _injection_enabled(args.mei_root):
                 context["memory"] = _memory_digest(args.mei_root)
             if event == "PostCompact":
-                context["obsidian"] = projection_failure or (_refresh_projection(args.mei_root, context.get("generation", "none"))
-                                       if direct_vault or args.projection_child else {"status": "obsidian_projection_stale", "reason": "projection_writer_not_selected"})
+                context["obsidian"] = (_refresh_projection(args.mei_root, context.get("generation", "none"))
+                    if _direct_vault(args.mei_root) else {"status": "manual_sync_required"})
             context["authority"] = "Transient task context only; current user instructions provide authorization."
+            context["continuity_check"] = _continuity_check(
+                state, event=event, checkpoint_allowed=bool(attached and
+                    home_matches and (not args.writer_thread_id or args.writer_thread_id == envelope.get("session_id")) and
+                    attached.get("context_id") == context_id and
+                    attached.get("writer") == {"host": host, "session_id": envelope.get("session_id")}),
+                source=envelope.get("source"),
+                selection_status=selection.get("status"),
+            )
+            # Keep the recovery guard at the head of model-visible output even
+            # if a large saved project makes the host spill the middle to disk.
+            context = {"continuity_check": context.pop("continuity_check"), **context}
             content = json.dumps(context, ensure_ascii=False)
             if event == "SessionStart":
                 wire = {"continue": True, "hookSpecificOutput": {"hookEventName": event, "additionalContext": content}}
@@ -725,7 +701,6 @@ def main(argv: list[str] | None = None) -> int:
             if context_id and not args.lifecycle_child and not (args.writer_thread_id or args.codex_home):
                 wire = _sandboxed_lifecycle(args, envelope, host, actual_home, context_id)
                 if wire is not None:
-                    _finish_precompact_diagnostic(diagnostic, wire)
                     _emit(args, envelope, host, wire)
                     return 0
             selected_profile = os.environ.get("CODEX_PERMISSION_PROFILE")
@@ -752,7 +727,6 @@ def main(argv: list[str] | None = None) -> int:
                 wire = {"continue": allow, "systemMessage": "Mei continuity (read-only witness): " + json.dumps({"status": state["status"], "allow": allow})}
                 if not allow:
                     wire["stopReason"] = "Explicitly sync the selected Mei context before manual compact."
-                _finish_precompact_diagnostic(diagnostic, wire)
                 _emit(args, envelope, host, wire)
                 return 0
             if __package__:
@@ -773,15 +747,21 @@ def main(argv: list[str] | None = None) -> int:
     except (ContinuityError, OSError, ValueError, KeyError, TypeError) as exc:
         # Do not echo unvalidated input or record contents into host diagnostics.
         message = "Mei continuity unavailable; inspect the selected pair."
+        if startup:
+            message += (" Before the next task action, inspect continuity read-only. Do not resume task mutations "
+                        "from an unverified handoff, automatically reconcile or change permissions; report an unresolved blocker once.")
         if isinstance(exc, _LifecycleFailure):
             message += " " + json.dumps(exc.diagnostic)
         wire = {"continue": automatic or startup or event in {"UserPromptSubmit", STOP_EVENT}, "systemMessage": message}
-        _finish_precompact_diagnostic(diagnostic, wire, exc)
+        if event == "SessionStart":
+            wire["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": json.dumps({
+                "status": "context_unavailable",
+                "continuity_check": _continuity_check(None, event=event, checkpoint_allowed=False, source=envelope.get("source")),
+            })}
         _emit(args, envelope, host, wire, error=exc)
         # Keep the response parseable by the native host. Automatic failures
         # remain fail-open; manual failures stop through continue:false.
         return 0
-    _finish_precompact_diagnostic(diagnostic, wire)
     _emit(args, envelope, host, wire)
     # A valid hook response is controlled by its JSON envelope. In particular,
     # PreCompact uses continue:false to stop compaction; a non-zero exit causes

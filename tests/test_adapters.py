@@ -129,6 +129,123 @@ class TestHostEvents(unittest.TestCase):
         self.assertIn("Run the selected validation checks.", json.loads(restored.stdout)["systemMessage"])
         self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), debt)
 
+    def test_post_compact_requires_agent_readback_without_claiming_recovery_or_writing(self):
+        from continuity_adapters import read_tui_context
+
+        for trigger in ("auto", "manual"):
+            with self.subTest(trigger=trigger):
+                fixture = self.make_fixture()
+                if trigger == "auto":
+                    self.host_event(fixture, "PreCompact", trigger=trigger)
+                before = read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+                wire = json.loads(self.host_event(fixture, "PostCompact", trigger=trigger).stdout)
+                payload = json.loads(wire["systemMessage"].split(": ", 1)[1])
+                check = payload["continuity_check"]
+                self.assertEqual(check["source_event"], "PostCompact")
+                self.assertEqual(check["status"], "pending_agent_readback")
+                self.assertFalse(check["recovery_verified"])
+                self.assertFalse(check["latest_progress_verified"])
+                self.assertTrue(check["handoff_integrity"])
+                self.assertEqual(check["expected"]["project_sha256"], before["project_sha256"])
+                self.assertEqual(check["expected"]["synced_generation"], before["checkpointer"]["synced_generation"])
+                instructions = " ".join(check["instructions"])
+                self.assertIn("Before the next task action", instructions)
+                self.assertIn("read-only", instructions)
+                self.assertIn("Do not wait for a user verification prompt", instructions)
+                self.assertIn("Do not automatically reconcile", instructions)
+                self.assertNotIn("decision", wire)
+                self.assertNotIn("must-not-read", wire["systemMessage"])
+                self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
+
+    def test_startup_requests_stage_checkpoints_only_from_the_attached_writer(self):
+        fixture = self.make_fixture()
+        directory = fixture.mei / "local/attachments"
+        directory.mkdir(parents=True)
+        write_json(directory / f"{fixture.repo_id}.json", {
+            "repo_id": fixture.repo_id, "repo_root": str(fixture.repo.resolve()),
+            "context_id": fixture.context_id,
+            "writer": {"host": "gui2", "session_id": "selected-tui"},
+        })
+        # host_event deliberately labels this reader tui, not gui2: no write authority.
+        observer = json.loads(self.host_event(fixture, "SessionStart").stdout)
+        observer = json.loads(observer["hookSpecificOutput"]["additionalContext"])["continuity_check"]
+        self.assertFalse(observer["checkpoint_allowed"])
+        self.assertIn("Do not save or take over", " ".join(observer["instructions"]))
+        from continuity_adapters import main
+        envelope = {"cwd": str(fixture.repo), "session_id": "selected-tui", "hook_event_name": "SessionStart"}
+        stdout = io.StringIO()
+        with patch("continuity_adapters.sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(envelope).encode()))), redirect_stdout(stdout):
+            self.assertEqual(main(["--repo-root", str(fixture.repo), "--mei-root", str(fixture.mei), "--host", "gui2"]), 0)
+        writer = json.loads(json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"])["continuity_check"]
+        self.assertTrue(writer["checkpoint_allowed"])
+        self.assertIn("After a meaningful task milestone", " ".join(writer["instructions"]))
+        self.assertIn("handoff_saved", " ".join(writer["instructions"]))
+
+    def test_post_compact_invalid_or_ambiguous_context_does_not_suggest_resume(self):
+        fixture = self.make_fixture()
+        with patch("continuity_adapters.select_context", return_value={
+                "status": "context_ambiguous", "candidates": ["one", "two"]}):
+            from continuity_adapters import main
+            envelope = {"cwd": str(fixture.repo), "session_id": "any", "hook_event_name": "PostCompact"}
+            stdout = io.StringIO()
+            with patch("continuity_adapters.sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(envelope).encode()))), redirect_stdout(stdout):
+                self.assertEqual(main(["--mei-root", str(fixture.mei)]), 0)
+        check = json.loads(json.loads(stdout.getvalue())["systemMessage"].split(": ", 1)[1])["continuity_check"]
+        self.assertEqual(check["status"], "blocked")
+        self.assertFalse(check["checkpoint_allowed"])
+        self.assertFalse(check["recovery_verified"])
+        self.assertIn("Do not resume task mutations", " ".join(check["instructions"]))
+
+    def test_recovery_check_never_turns_invalid_or_recovery_state_into_checkpoint_permission(self):
+        from continuity_adapters import _continuity_check, read_tui_context
+
+        fixture = self.make_fixture()
+        baseline = read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        for status in ("needs_reconcile", "conflict", "stale", "completed", "retired"):
+            with self.subTest(status=status):
+                state = dict(baseline, status=status)
+                state["checkpointer"] = dict(baseline["checkpointer"], needs_reconcile=status == "needs_reconcile")
+                check = _continuity_check(state, event="PostCompact", checkpoint_allowed=True)
+                self.assertFalse(check["checkpoint_allowed"])
+                self.assertFalse(check["recovery_verified"])
+                self.assertEqual(check["status"], "pending_agent_readback" if status == "needs_reconcile" else "blocked")
+        tampered = dict(baseline, checkpointer=dict(baseline["checkpointer"], project_sha256="0" * 64))
+        check = _continuity_check(tampered, event="PostCompact", checkpoint_allowed=True)
+        self.assertFalse(check["handoff_integrity"])
+        self.assertFalse(check["checkpoint_allowed"])
+        self.assertEqual(check["status"], "blocked")
+
+    def test_mid_turn_auto_compact_injects_pending_check_through_session_start_compact(self):
+        from continuity_adapters import read_tui_context
+
+        fixture = self.make_fixture()
+        self.host_event(fixture, "UserPromptSubmit")
+        self.host_event(fixture, "PreCompact", trigger="auto")
+        self.host_event(fixture, "PostCompact", trigger="auto")
+        before = read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei)
+        wire = json.loads(self.host_event(fixture, "SessionStart", source="compact").stdout)
+        self.assertNotIn("systemMessage", wire)
+        self.assertEqual(wire["hookSpecificOutput"]["hookEventName"], "SessionStart")
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        check = payload["continuity_check"]
+        self.assertEqual(check["source_event"], "SessionStart")
+        self.assertEqual(check["source"], "compact")
+        self.assertEqual(check["status"], "pending_agent_readback")
+        self.assertFalse(check["checkpoint_allowed"])
+        self.assertFalse(check["recovery_verified"])
+        self.assertTrue(check["expected"]["needs_reconcile"])
+        self.assertEqual(check["expected"]["project_sha256"], before["project_sha256"])
+        self.assertGreater(check["expected"]["generation"], check["expected"]["synced_generation"])
+        self.assertEqual(read_tui_context(fixture.repo, fixture.context_id, mei_root=fixture.mei), before)
+
+    def test_startup_failure_still_supplies_model_visible_recovery_guard(self):
+        fixture = self.make_fixture()
+        wire = json.loads(self.host_event(fixture, "SessionStart", source="compact", cwd=str(fixture.root)).stdout)
+        self.assertTrue(wire["continue"])
+        payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(payload["continuity_check"]["status"], "blocked")
+        self.assertEqual(payload["continuity_check"]["source"], "compact")
+
     def test_stop_requests_one_current_agent_save_and_does_not_loop_or_write(self):
         from continuity_adapters import read_tui_context
 
@@ -180,6 +297,12 @@ class TestHostEvents(unittest.TestCase):
         self.host_event(fixture, "Stop", stop_hook_active=True)
         stop_path = path.with_name("Stop.json")
         self.assertTrue(json.loads(stop_path.read_text())["stop_hook_active"])
+        for source in ("compact", "PRIVATE INPUT"):
+            self.host_event(fixture, "SessionStart", source=source, prompt="PRIVATE INPUT")
+            receipt = path.with_name("SessionStart.json")
+            self.assertEqual(json.loads(receipt.read_text())["source"],
+                             "compact" if source == "compact" else "unspecified")
+            self.assertNotIn("PRIVATE INPUT", receipt.read_text())
 
     def test_readback_witness_cannot_write_the_selected_writers_bookkeeping(self):
         from continuity_adapters import read_tui_context
@@ -227,6 +350,7 @@ class TestLifecycleDiagnostics(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         before = {p: p.read_bytes() for p in self.root.iterdir()}
         with patch("continuity_adapters._local_config", return_value=self.config), \
+                patch("check_continuity.repo_id_for", return_value="repo-" + "a" * 32), \
                 patch("continuity_adapters.subprocess.run", **{
                     "side_effect" if raises else "return_value": outcome}) as run, \
                 patch("sync_continuity.handle_lifecycle_event") as writer, \
@@ -300,210 +424,6 @@ class TestLifecycleDiagnostics(unittest.TestCase):
             self.assertEqual(json.loads(options["input"]), {
                 "hook_event_name": "PreCompact", "trigger": "manual", "cwd": str(self.root),
                 "session_id": "fixture-session"})
-
-
-class TestPrecompactReceipts(unittest.TestCase):
-    """Native execution is mocked; all writes stay in a synthetic context."""
-
-    def setUp(self):
-        root = ROOT / ".tmp/host-tests" / uuid.uuid4().hex
-        root.mkdir(parents=True)
-        self.fixture = ContinuityFixture(root)
-        checkpoint = self.fixture.context_dir / "checkpointer.json"
-        write_json(checkpoint, dict(json.loads(checkpoint.read_bytes()), dirty=True))
-        self.native = root / "native.exe"
-        self.native.write_bytes(b"mock only")
-        self.binding = {"enabled": True, "host": "gui", "repo_id": self.fixture.repo_id,
-                        "context_id": self.fixture.context_id, "run_id": uuid.uuid4().hex}
-        self.local = self.fixture.mei / "local/paths.toml"
-        self.local.parent.mkdir()
-        self.base = self.fixture.context_dir / "_hook_diagnostics"
-        self.secret = "PRIVATE-SYNTHETIC-RECEIPT-MARKER"
-        self.blocked = {
-            "continue": False,
-            "systemMessage": 'Mei continuity: ' + json.dumps({"event": "precompact_manual", "allow": False,
-                                                            "reason": "sync_required", "generation": 0}),
-            "stopReason": "Explicitly sync the selected Mei context before manual compact.",
-        }
-        self.configure(self.binding)
-
-    def configure(self, diagnostic):
-        paths = {"codex_cli": str(self.native), "codex_home_gui": str(self.fixture.root / "gui-home"),
-                 "codex_home_tui": str(self.fixture.root / "tui-home")}
-        text = "[paths]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in paths.items())
-        text += "[host]\ncontinuity_lifecycle_profile = 'mei-continuity-writer'\n"
-        if diagnostic is not None:
-            text += "[host.precompact_diagnostics]\n"
-            text += "".join(f"{k} = {json.dumps(v)}\n" for k, v in diagnostic.items())
-        self.local.write_text(text, encoding="utf-8")
-
-    def invoke(self, *, wire=None, outcome=None, error=None, event="PreCompact", trigger="manual", home="gui-home"):
-        from continuity_adapters import main
-
-        envelope = {"hook_event_name": event, "trigger": trigger, "cwd": str(self.fixture.repo),
-                    "session_id": self.secret, "prompt": self.secret, "transcript_path": self.secret}
-        observed = self.fixture.root / home
-        expected = self.blocked if wire is None else wire
-        real_run = subprocess.run
-
-        def native_run(command, *args, **kwargs):
-            if command[0] != str(self.native):
-                return real_run(command, *args, **kwargs)  # Only fixture Git identity queries.
-            if error is not None:
-                raise error
-            return outcome or SimpleNamespace(returncode=0, stdout=json.dumps(expected), stderr=self.secret)
-
-        protocol = [self.fixture.context_dir / "project.json", self.fixture.context_dir / "checkpointer.json",
-                    self.fixture.mei / "registry/continuity.yaml"]
-        before = {p: p.read_bytes() for p in protocol}
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with patch("continuity_adapters.subprocess.run", side_effect=native_run), \
-                patch("sync_continuity.handle_lifecycle_event") as writer, \
-                patch("continuity_adapters.sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(envelope).encode()))), \
-                patch.dict(os.environ, CODEX_HOME=str(observed), PRIVATE_RECEIPT_ENV=self.secret), \
-                redirect_stdout(stdout), redirect_stderr(stderr):
-            code = main(["--mei-root", str(self.fixture.mei)])  # Real auto-host and context selection.
-        self.assertEqual(code, 0)
-        self.assertEqual(stderr.getvalue(), "")
-        writer.assert_not_called()
-        self.assertEqual({p: p.read_bytes() for p in protocol}, before)
-        for path in self.base.glob("*/*"):
-            if path.is_file():
-                self.assertNotIn(self.secret.encode(), path.read_bytes())
-                self.assertEqual(path.suffix, ".json")  # No temporary files left behind.
-        return json.loads(stdout.getvalue())
-
-    def test_disabled_or_non_manual_events_create_nothing(self):
-        for binding in (None, dict(self.binding, enabled=False)):
-            self.configure(binding)
-            self.assertEqual(self.invoke(), self.blocked)
-            self.assertFalse(self.base.exists())
-        self.configure(self.binding)
-        for event, trigger in (("PreCompact", "auto"), ("UserPromptSubmit", "manual")):
-            self.assertEqual(self.invoke(event=event, trigger=trigger), self.blocked)
-            self.assertFalse(self.base.exists())
-
-    def test_correct_binding_claims_once_and_preserves_the_block_response(self):
-        from continuity_adapters import read_gui_context
-
-        before = read_gui_context(self.fixture.repo, self.fixture.context_id, mei_root=self.fixture.mei)
-        self.assertEqual(self.invoke(), self.blocked)
-        run = self.base / self.binding["run_id"]
-        self.assertEqual(sorted(p.name for p in run.iterdir()), ["result.json", "started.json"])
-        started = json.loads((run / "started.json").read_bytes())
-        result = json.loads((run / "result.json").read_bytes())
-        self.assertEqual(set(started), {"event", "stage", "time", "generation"})
-        self.assertEqual(set(result), set(started) | {"allow", "reason"})
-        self.assertEqual((started["event"], started["stage"]), ("PreCompact", "bound"))
-        self.assertEqual((result["stage"], result["allow"], result["reason"]), ("result", False, "sync_required"))
-        evidence = {p: p.read_bytes() for p in run.iterdir()}
-        self.assertEqual(self.invoke(), self.blocked)
-        self.assertEqual({p: p.read_bytes() for p in run.iterdir()}, evidence)
-        self.assertEqual(read_gui_context(self.fixture.repo, self.fixture.context_id, mei_root=self.fixture.mei), before)
-
-    def test_wrong_bindings_and_unsafe_run_ids_never_write(self):
-        overrides = [{"host": "tui"}, {"repo_id": "repo-" + "0" * 32}, {"context_id": "other"},
-                     {"context_id": "../escape"}, {"run_id": "../escape"}, {"run_id": str(self.fixture.root)},
-                     {"run_id": "a" * 31}, {"run_id": "a" * 32 + ":ads"}, {"enabled": 1},
-                     {"unexpected_path": str(self.fixture.root)}]
-        for override in overrides:
-            with self.subTest(override=override):
-                self.configure(dict(self.binding, **override))
-                self.assertEqual(self.invoke(), self.blocked)
-                self.assertFalse(self.base.exists())
-        self.configure(self.binding)
-        self.assertEqual(self.invoke(home="other-home"), self.blocked)
-        self.assertFalse(self.base.exists())
-
-    def test_clean_allow_and_child_unavailable_responses_stay_unchanged(self):
-        cases = [({"continue": True, "systemMessage": 'Mei continuity: ' + json.dumps({
-            "event": "precompact_manual", "allow": True, "reason": "clean", "generation": 2})}, "result", "clean"),
-                 ({"continue": False, "systemMessage": "Mei continuity unavailable; inspect the selected pair."},
-                  "child_unavailable", "unavailable")]
-        for wire, stage, reason in cases:
-            with self.subTest(reason=reason):
-                self.binding["run_id"] = uuid.uuid4().hex
-                self.configure(self.binding)
-                self.assertEqual(self.invoke(wire=wire), wire)
-                result = json.loads((self.base / self.binding["run_id"] / "result.json").read_bytes())
-                self.assertEqual((result["stage"], result["allow"], result["reason"]), (stage, wire["continue"], reason))
-
-    def test_lifecycle_child_cannot_claim_the_parents_run(self):
-        from continuity_adapters import _start_precompact_diagnostic
-
-        args = SimpleNamespace(repo_root=self.fixture.repo, mei_root=self.fixture.mei,
-                               lifecycle_child=True, projection_child=False)
-        with patch("continuity_adapters.load_context") as reader:
-            result = _start_precompact_diagnostic(args, {"hook_event_name": "PreCompact", "trigger": "manual"},
-                                                  "gui", self.fixture.root / "gui-home", self.fixture.context_id)
-        reader.assert_not_called()
-        self.assertIsNone(result)
-        self.assertFalse(self.base.exists())
-
-    def test_reparse_ancestor_is_rejected_without_altering_the_decision(self):
-        from check_continuity import _is_reparse_point
-
-        def reparse(path):
-            return path == self.base or _is_reparse_point(path)
-
-        with patch("check_continuity._is_reparse_point", side_effect=reparse):
-            self.assertEqual(self.invoke(), self.blocked)
-        self.assertFalse(self.base.exists())
-
-    def test_subprocess_failures_record_only_safe_numeric_metadata(self):
-        denied = PermissionError(13, self.secret, self.secret)
-        denied.winerror = 5
-        cases = [(denied, None, "launch", {"errno": 13, "winerror": 5}),
-                 (subprocess.TimeoutExpired([self.secret], 10, output=self.secret, stderr=self.secret), None, "timeout", {}),
-                 (None, SimpleNamespace(returncode=19, stdout=self.secret, stderr=self.secret), "exit", {"exit_code": 19}),
-                 (None, SimpleNamespace(returncode=0, stdout=self.secret, stderr=self.secret), "response", {})]
-        for error, outcome, stage, numbers in cases:
-            with self.subTest(stage=stage):
-                self.binding["run_id"] = uuid.uuid4().hex
-                self.configure(self.binding)
-                wire = self.invoke(error=error, outcome=outcome)
-                self.assertFalse(wire["continue"])
-                result = json.loads((self.base / self.binding["run_id"] / "result.json").read_bytes())
-                self.assertEqual(result["stage"], stage)
-                self.assertEqual(result["reason"], "unavailable")
-                self.assertFalse(result["allow"])
-                self.assertEqual({k: v for k, v in result.items() if k not in {"event", "stage", "time", "generation", "allow", "reason"}}, numbers)
-
-    def test_receipt_failure_preserves_allow_and_block_and_consumes_run_id(self):
-        from continuity_adapters import _publish_precompact_receipt
-
-        for allow in (False, True):
-            for fail_at in ("started.json", "result.json"):
-                with self.subTest(allow=allow, fail_at=fail_at):
-                    self.binding["run_id"] = uuid.uuid4().hex
-                    self.configure(self.binding)
-                    expected = dict(self.blocked, **{"continue": allow})
-
-                    def publish(path, value):
-                        if path.name == fail_at:
-                            raise PermissionError(self.secret)
-                        _publish_precompact_receipt(path, value)
-
-                    with patch("continuity_adapters._publish_precompact_receipt", side_effect=publish):
-                        self.assertEqual(self.invoke(wire=expected), expected)
-                    run = self.base / self.binding["run_id"]
-                    evidence = {p: p.read_bytes() for p in run.iterdir()}
-                    self.assertEqual(self.invoke(wire=expected), expected)
-                    self.assertEqual({p: p.read_bytes() for p in run.iterdir()}, evidence)
-
-    def test_receipts_do_not_copy_child_content_or_overwrite_existing_files(self):
-        from continuity_adapters import _publish_precompact_receipt
-
-        data = {"event": "precompact_manual", "allow": False, "reason": self.secret, "generation": 0,
-                "prompt": self.secret, "diagnostics": [self.secret], "errno": self.secret}
-        self.invoke(wire=dict(self.blocked, systemMessage="Mei continuity: " + json.dumps(data)))
-        path = self.base / self.binding["run_id"] / "result.json"
-        before = path.read_bytes()
-        self.assertEqual(json.loads(before)["reason"], "unclassified_response")
-        with self.assertRaises(FileExistsError):
-            _publish_precompact_receipt(path, {"event": "PreCompact"})
-        self.assertEqual(path.read_bytes(), before)
-        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["result.json", "started.json"])
 
 
 class TestAdapters(unittest.TestCase):
@@ -662,6 +582,10 @@ class TestSharedHomes(unittest.TestCase):
         wire = self.run_hook(fixture, "SessionStart", home=fixture.root / "gui-home")
         payload = json.loads(wire["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(payload["status"], "context_missing")
+        self.assertEqual(payload["continuity_check"]["status"], "not_attached")
+        self.assertFalse(payload["continuity_check"]["checkpoint_allowed"])
+        self.assertFalse(payload["continuity_check"]["recovery_verified"])
+        self.assertIn("without requiring Mei enrollment", " ".join(payload["continuity_check"]["instructions"]))
         self.assertIn("Shared base memory marker.", payload["memory"]["text"])
         self.assertFalse((fixture.mei / "memory" / "continuity" / fixture.repo_id / "new").exists())
 
@@ -731,7 +655,7 @@ class TestSharedHomes(unittest.TestCase):
         self.assertNotIn("prompt", metadata)
         self.assertNotIn("transcript_path", metadata)
 
-    def test_unavailable_projection_sandbox_preserves_post_compact_continuity(self):
+    def test_external_vault_requires_explicit_sync_without_a_projection_worker(self):
         fixture = self.make_fixture()
         (fixture.mei / "local").mkdir()
         (fixture.mei / "local/paths.toml").write_text(
@@ -742,7 +666,7 @@ class TestSharedHomes(unittest.TestCase):
         payload = json.loads(wire["systemMessage"].split(": ", 1)[1])
         self.assertEqual(payload["context_id"], "shared")
         self.assertEqual(payload["memory"]["status"], "ok")
-        self.assertEqual(payload["obsidian"]["status"], "obsidian_projection_stale")
+        self.assertEqual(payload["obsidian"]["status"], "manual_sync_required")
 
     def test_direct_root_post_compact_needs_no_projection_sandbox_or_note_copy(self):
         fixture = self.make_fixture()

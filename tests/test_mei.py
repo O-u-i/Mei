@@ -23,34 +23,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class EnrollmentTests(unittest.TestCase):
-    def test_denied_config_does_not_publish_or_transfer_attachment(self):
-        from scripts.mei import _replace_record as replace_record
+    def test_attach_and_transfer_never_read_or_write_host_config(self):
+        from scripts.mei import _bytes as read_bytes
 
-        for previous_writer in (False, True):
-            with self.subTest(previous_writer=previous_writer), fixture_root() as directory:
-                fixture, homes = self.fixture(directory)
-                attachment = fixture.mei / f"local/attachments/{fixture.repo_id}.json"
-                if previous_writer:
-                    attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
-                           session_id="session-a", role="writer", apply=True)
-                before = attachment.read_bytes() if attachment.exists() else None
-                settings = homes[1] / "config.toml"
-                config_before = settings.read_bytes()
+        with fixture_root() as directory:
+            fixture, homes = self.fixture(directory)
+            original = {home / "config.toml": (home / "config.toml").read_bytes() for home in homes}
 
-                def deny_config(path, raw):
-                    if path == settings:
-                        raise PermissionError("synthetic host config denial")
-                    return replace_record(path, raw)
+            def deny_config(path):
+                if path in original:
+                    raise PermissionError("host config is not an attach dependency")
+                return read_bytes(path)
 
-                with patch("scripts.mei._replace_record", side_effect=deny_config):
-                    with self.assertRaises(PermissionError):
-                        attach(fixture.mei, fixture.repo, context_id="shared", host="gui2",
-                               session_id="session-b", role="writer",
-                               takeover=previous_writer, apply=True)
-                self.assertEqual(attachment.read_bytes() if attachment.exists() else None, before)
-                self.assertEqual(settings.read_bytes(), config_before)
+            with patch("scripts.mei._bytes", side_effect=deny_config):
+                attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                       session_id="session-a", role="writer", apply=True)
+                attach(fixture.mei, fixture.repo, context_id="shared", host="gui2",
+                       session_id="session-b", role="writer", takeover=True, apply=True)
+            self.assertEqual({path: path.read_bytes() for path in original}, original)
+            attachment = json.loads((fixture.mei / f"local/attachments/{fixture.repo_id}.json").read_bytes())
+            self.assertNotIn("permission_profile", attachment)
+            self.assertEqual(attachment["writer"], {"host": "gui2", "session_id": "session-b"})
 
-    def test_explicit_attach_host_does_not_change_other_home(self):
+    def test_attach_preserves_both_host_configs(self):
         with fixture_root() as directory:
             fixture, homes = self.fixture(directory)
             original = (homes[0] / "config.toml").read_bytes()
@@ -60,7 +55,46 @@ class EnrollmentTests(unittest.TestCase):
             attach(fixture.mei, fixture.repo, context_id="shared", host="gui2",
                    session_id="session-b", role="writer", apply=True)
             self.assertEqual((homes[0] / "config.toml").read_bytes(), original)
-            self.assertIn("mei-context-", (homes[1] / "config.toml").read_text())
+            self.assertEqual((homes[1] / "config.toml").read_bytes(), original)
+
+    def test_lifecycle_and_receipts_use_local_grants_not_attachment_profile(self):
+        import tomllib
+        from continuity_adapters import _event_receipt, _sandboxed_lifecycle
+
+        with fixture_root() as directory:
+            fixture, homes = self.fixture(directory)
+            setup(fixture.mei, ["gui1"], apply=True)
+            attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                   session_id="session-a", role="writer", apply=True)
+            native = directory / "native.exe"
+            native.write_bytes(b"mock only")
+            config = fixture.mei / "local/paths.toml"
+            config.write_text(config.read_text() + f"codex_cli = '{native}'\n", encoding="utf-8")
+            args = SimpleNamespace(mei_root=fixture.mei, repo_root=fixture.repo, context_id="shared",
+                                   lifecycle_child=False, diagnostic_child=False)
+            envelope = {"hook_event_name": "UserPromptSubmit", "session_id": "session-a",
+                        "cwd": str(fixture.repo)}
+            real_run = subprocess.run
+            commands = []
+
+            def run(command, **kwargs):
+                if command[0] != str(native):
+                    return real_run(command, **kwargs)
+                commands.append(command)
+                return SimpleNamespace(returncode=0, stdout='{"continue":true,"diagnostics":"recorded"}')
+
+            with patch("continuity_adapters.subprocess.run", side_effect=run):
+                self.assertTrue(_sandboxed_lifecycle(args, envelope, "gui1", homes[0], "shared")["continue"])
+                self.assertEqual(_event_receipt(args, envelope, "gui1"), "recorded")
+                self.assertIsNone(_sandboxed_lifecycle(args, dict(envelope, session_id="foreign"),
+                                                     "gui1", homes[0], "shared"))
+                with self.assertRaisesRegex(ContinuityError, "context differs"):
+                    _sandboxed_lifecycle(args, envelope, "gui1", homes[0], "another")
+            self.assertEqual(len(commands), 2)
+            for command, target in zip(commands, (fixture.context_dir, fixture.mei / "local/hook-events")):
+                grant = tomllib.loads(command[command.index("-c") + 1])["permissions"]["mei-worker"]
+                self.assertEqual(grant, {"extends": ":read-only", "filesystem": {str(target.resolve()): "write"},
+                                         "network": {"enabled": False}})
 
     def test_writer_transfer_rechecks_dirty_state_and_queued_old_writes(self):
         from contextlib import contextmanager
@@ -150,7 +184,7 @@ class EnrollmentTests(unittest.TestCase):
             self.assertEqual(load_context(fixture.repo, "shared", mei_root=fixture.mei), before)
             for home in homes:
                 text = (home / "config.toml").read_text()
-                self.assertIn(str(fixture.context_dir).replace("\\", "\\\\"), text)
+                self.assertEqual(text, 'default_permissions = ":read-only"\n')
                 self.assertNotIn("trusted_hash", text)
 
     def test_new_project_context_creation_keeps_existing_semantic_bytes(self):
@@ -217,8 +251,9 @@ class EnrollmentTests(unittest.TestCase):
                 self.assertEqual(record.call_args.args[0].context_id, "shared")
 
     def test_enrolled_save_requires_matching_writer_and_native_sandbox(self):
-        with fixture_root() as directory:
+        with fixture_root() as directory, patch("scripts.mei.repo_id_for") as identity:
             fixture, homes = self.fixture(directory)
+            identity.return_value = fixture.repo_id
             attach(fixture.mei, fixture.repo, context_id="shared", host="gui1", session_id="session-a", role="writer", apply=True)
             native = directory / "native.exe"
             native.write_bytes(b"fixture, never executed")
@@ -237,8 +272,12 @@ class EnrollmentTests(unittest.TestCase):
                     patch("scripts.mei.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout='{"status":"handoff_saved"}')) as run:
                 result = save_enrolled(fixture.mei, fixture.repo, "shared", directory / "snapshot.json", directory / "project.json", writer_session_id="gui1-session-a")
                 self.assertEqual(result["status"], "handoff_saved")
-                self.assertEqual(run.call_args.args[0][1:4], ["sandbox", "-P", "mei-context-" + fixture.repo_id[5:]])
-                self.assertIn("--input-stdin", run.call_args.args[0])
+                self.assertEqual(run.call_args.args[0][1:4], ["sandbox", "-P", "mei-worker"])
+                import tomllib
+                command = run.call_args.args[0]
+                grant = tomllib.loads(command[command.index("-c") + 1])["permissions"]["mei-worker"]
+                self.assertEqual(grant, {"extends": ":read-only", "filesystem": {str(fixture.context_dir.resolve()): "write"}, "network": {"enabled": False}})
+                self.assertIn("--input-stdin", command)
                 self.assertNotIn("--snapshot", run.call_args.args[0])
                 self.assertNotIn("--project", run.call_args.args[0])
                 self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"snapshot": snapshot, "project": project})

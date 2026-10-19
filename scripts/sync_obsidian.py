@@ -21,11 +21,13 @@ from checkpoint_continuity import _LockTimeout, _context_lock
 from memory_markdown import (
     CATEGORIES,
     INDEX_NAME,
+    LINK_PATTERN,
     MEMORY_ID_PATTERN,
     MemoryError,
     _assert_no_reparse,
     _assert_private,
     _relative,
+    _link_id,
     _split_note,
     doctor as markdown_doctor,
     parse_note,
@@ -183,13 +185,15 @@ def _frontmatter_text(value: dict[str, Any]) -> str:
     return yaml.safe_dump(value, allow_unicode=True, sort_keys=False, default_flow_style=False).rstrip()
 
 
-def _projection(note: dict[str, Any]) -> str:
+def _projection(note: dict[str, Any], views_path: str) -> str:
     frontmatter = {key: value for key, value in note.items() if key not in {"body", "path", "sha256"}}
     frontmatter.update({"mei_generated": True, "source_path": note["path"], "source_sha256": note["sha256"]})
-    return f"---\n{_frontmatter_text(frontmatter)}\n---\n{note['body']}"
+    body = LINK_PATTERN.sub(lambda match: match.group(0).replace(
+        match.group(1), f"{views_path}/{_link_id(match.group(1))}", 1), note["body"])
+    return f"---\n{_frontmatter_text(frontmatter)}\n---\n{body}"
 
 
-def _projection_index(notes: list[dict[str, Any]], source_generation: str | int, source_digest: str) -> str:
+def _projection_index(notes: list[dict[str, Any]], source_generation: str | int, source_digest: str, views_path: str) -> str:
     lines = [
         "---",
         "schema_version: v0.1.0",
@@ -201,7 +205,7 @@ def _projection_index(notes: list[dict[str, Any]], source_generation: str | int,
         "",
     ]
     for note in sorted(notes, key=lambda item: (item["category"], item["memory_id"])):
-        lines.append(f"- [[views/{note['memory_id']}]] `{note['category']}` {note['scope']}")
+        lines.append(f"- [[{views_path}/{note['memory_id']}]] `{note['category']}` {note['scope']}")
     return "\n".join(lines) + "\n"
 
 
@@ -217,11 +221,12 @@ def _plan(
     memory = read_memory(memory_root)
     notes = memory["notes"]
     source_digest = _source_digest(notes)
-    rendered = {note["memory_id"]: _projection(note) for note in notes}
+    prefix = _namespace_prefix(vault, namespace_path)
+    views_path = f"{prefix}/views" if prefix else "views"
+    rendered = {note["memory_id"]: _projection(note, views_path) for note in notes}
     views = namespace_path / "views"
     old_manifest, manifest_hash = _read_manifest(namespace_path / MANIFEST_NAME)
     old_notes = old_manifest.get("notes", {}) if old_manifest else {}
-    prefix = _namespace_prefix(vault, namespace_path)
     changes = {"added": [], "updated": [], "unchanged": [], "drifted": [], "skipped": []}
     page_paths: dict[str, Path] = {}
     observed: dict[Path, str | None] = {}
@@ -244,7 +249,7 @@ def _plan(
     for memory_id, previous in old_notes.items():
         if memory_id not in rendered:
             changes["skipped"].append(memory_id)
-    desired_index = _projection_index(notes, source_generation, source_digest)
+    desired_index = _projection_index(notes, source_generation, source_digest, views_path)
     index_path = _safe_vault_relative(vault, f"{prefix + '/' if prefix else ''}index.md", "projection index")
     observed[index_path] = hashlib.sha256(index_path.read_bytes()).hexdigest() if index_path.exists() else None
     desired_index_hash = hashlib.sha256(desired_index.encode("utf-8")).hexdigest()
@@ -476,7 +481,7 @@ def check_vault(
 
 
 def note_uri(vault_root: str | Path | None, locator: str, *, namespace: str | None = None) -> str:
-    """Build an open-only URI for one validated generated page; never launch it."""
+    """Build an open-only URI for a validated canonical or legacy note; never launch it."""
     vault, namespace_path, _ = resolve_vault(vault_root, namespace)
     prefix = _namespace_prefix(vault, namespace_path)
     direct = namespace_path == vault and (vault / INDEX_NAME).is_file()
@@ -487,12 +492,12 @@ def note_uri(vault_root: str | Path | None, locator: str, *, namespace: str | No
     if direct:
         read_note = __import__("memory_markdown").read_note
         read_note(vault, locator)
-        return "obsidian://open?" + urlencode({"vault": str(vault), "file": locator})
+        return "obsidian://open?" + urlencode({"path": str(path)})
     manifest, _ = _read_manifest(namespace_path / MANIFEST_NAME)
     entry = (manifest or {}).get("notes", {}).get(path.stem)
     if not entry or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry["rendered_sha256"]:
         raise MemoryError("URI target is missing or drifted")
-    return "obsidian://open?" + urlencode({"vault": str(vault), "file": path.relative_to(vault).as_posix()})
+    return "obsidian://open?" + urlencode({"path": str(path)})
 
 
 def import_inbox(vault_root: str | Path | None, filename: str, *, memory_root: str | Path | None = None,
