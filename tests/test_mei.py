@@ -23,6 +23,151 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class EnrollmentTests(unittest.TestCase):
+    def test_handoff_readback_exposes_foreign_writer_without_mutation(self):
+        with fixture_root() as directory:
+            fixture, homes = self.fixture(directory)
+            attach(fixture.mei, fixture.repo, context_id="shared", host="gui2",
+                   session_id="session-old", role="writer", apply=True)
+            paths = [fixture.context_dir / name for name in ("project.json", "checkpointer.json")]
+            paths += [fixture.mei / "registry/continuity.yaml",
+                      fixture.mei / f"local/attachments/{fixture.repo_id}.json"]
+            before = {path: path.read_bytes() for path in paths}
+            env = dict(os.environ, CODEX_HOME=str(homes[0]), CODEX_THREAD_ID="session-new")
+            with patch.dict(os.environ, env):
+                hint = status(fixture.mei, fixture.repo)["handoff"]
+                self.assertEqual(hint["role"], "observer")
+                self.assertFalse(hint["can_save"])
+                self.assertEqual(hint["required_action"], "explicit_clean_takeover")
+                self.assertEqual(hint["registered_writer"], {"host": "gui2", "session_id": "session-old"})
+                self.assertFalse(hint["latest_progress_verified"])
+                # The installed check dispatches to this CLI, not enrollment status.
+                child = subprocess.run([sys.executable, "-X", "utf8", "-B",
+                    str(ROOT / "scripts/check_continuity.py"), "--mei-root", str(fixture.mei),
+                    "--repo-root", str(fixture.repo), "--context-id", "shared", "--host", "gui2"],
+                    capture_output=True, encoding="utf-8", env=env)
+                self.assertEqual(child.returncode, 0, child.stderr)
+                readback = json.loads(child.stdout)
+                self.assertEqual(readback["status"], "clean")
+                self.assertEqual(readback["handoff"], hint)
+                self.assertEqual(hint["current_host"], "gui1")  # --host is not identity.
+            self.assertEqual({path: path.read_bytes() for path in paths}, before)
+            # Explicit receiving authorization is represented by plan then apply;
+            # changing enrollment alone must not pretend to save new semantics.
+            plan = attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                          session_id="session-new", role="writer", takeover=True)
+            self.assertTrue(plan["changed_files"])
+            self.assertEqual({path: path.read_bytes() for path in paths}, before)
+            source = load_context(fixture.repo, "shared", mei_root=fixture.mei)
+            attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                   session_id="session-new", role="writer", takeover=True, apply=True)
+            self.assertEqual(load_context(fixture.repo, "shared", mei_root=fixture.mei)["project_sha256"],
+                             source["project_sha256"])
+            project = dict(source["project"], next_step="Receiving agent verified the bounded handoff.")
+            saved = save_handoff(fixture.repo, "shared", source, project,
+                                 mei_root=fixture.mei, writer_session_id="gui1-session-new")
+            self.assertEqual(saved["status"], "handoff_saved")
+            with patch.dict(os.environ, env):
+                received = status(fixture.mei, fixture.repo)
+            final = load_context(fixture.repo, "shared", mei_root=fixture.mei)
+            self.assertEqual(final["project"]["next_step"], project["next_step"])
+            self.assertEqual(final["status"], "clean")
+            self.assertNotEqual(final["project_sha256"], source["project_sha256"])
+            self.assertEqual(final["checkpointer"]["generation"], final["checkpointer"]["synced_generation"])
+            self.assertEqual(final["checkpointer"]["writer_session_id"], "gui1-session-new")
+            self.assertEqual(received["handoff"]["role"], "writer")
+
+    def test_handoff_save_hint_respects_identity_and_recovery(self):
+        with fixture_root() as directory:
+            fixture, homes = self.fixture(directory)
+            self.assertEqual(status(fixture.mei, fixture.repo)["handoff"]["required_action"],
+                             "explicit_enrollment_required")
+            attach(fixture.mei, fixture.repo, context_id="shared", apply=True)
+            with patch.dict(os.environ, CODEX_HOME=str(homes[0]), CODEX_THREAD_ID="session-a"):
+                self.assertEqual(status(fixture.mei, fixture.repo)["handoff"]["required_action"],
+                                 "explicit_writer_selection")
+            attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                   session_id="session-a", role="writer", apply=True)
+            with patch.dict(os.environ, CODEX_HOME=str(homes[0]), CODEX_THREAD_ID="session-a"):
+                hint = status(fixture.mei, fixture.repo)["handoff"]
+                self.assertEqual(hint["role"], "writer")
+                self.assertTrue(hint["can_save"])
+                self.assertEqual(hint["required_action"], "save_and_read_back")
+                from continuity_adapters import handoff_status
+                clean = load_context(fixture.repo, "shared", mei_root=fixture.mei)
+                for state in ("stale", "conflict", "completed", "retired"):
+                    hint = handoff_status(fixture.repo, dict(clean, status=state), mei_root=fixture.mei)
+                    self.assertFalse(hint["can_save"])
+                    self.assertEqual(hint["required_action"], "terminal_context" if state in
+                                     {"completed", "retired"} else "explicit_recovery_required")
+                other = handoff_status(fixture.repo, dict(clean, context_id="other"), mei_root=fixture.mei)
+                self.assertIsNone(other["registered_writer"])
+                self.assertEqual(other["required_action"], "select_attached_context")
+                with patch.dict(os.environ, CODEX_HOME=str(directory / "unknown-home")):
+                    hint = status(fixture.mei, fixture.repo)["handoff"]
+                    self.assertFalse(hint["can_save"])
+                    self.assertEqual(hint["required_action"], "verify_current_identity")
+                with patch.dict(os.environ, CODEX_THREAD_ID="", CODEX_SESSION_ID=""):
+                    self.assertFalse(status(fixture.mei, fixture.repo)["handoff"]["can_save"])
+                handle_lifecycle_event(fixture.repo, "shared", "user_prompt_submit",
+                                       mei_root=fixture.mei, writer_session_id="gui1-session-a")
+                self.assertTrue(status(fixture.mei, fixture.repo)["handoff"]["can_save"])
+                with patch.dict(os.environ, CODEX_THREAD_ID="session-b"):
+                    hint = status(fixture.mei, fixture.repo)["handoff"]
+                    self.assertFalse(hint["can_save"])
+                    self.assertEqual(hint["required_action"], "source_writer_save_required")
+                handle_lifecycle_event(fixture.repo, "shared", "precompact_auto",
+                                       mei_root=fixture.mei, writer_session_id="gui1-session-a")
+                hint = status(fixture.mei, fixture.repo)["handoff"]
+                self.assertFalse(hint["can_save"])
+                self.assertEqual(hint["required_action"], "explicit_recovery_required")
+
+    def test_recovery_hint_distinguishes_owner_without_granting_save(self):
+        from continuity_adapters import handoff_status
+
+        with fixture_root() as directory:
+            fixture, homes = self.fixture(directory)
+            attach(fixture.mei, fixture.repo, context_id="shared", host="gui1",
+                   session_id="session-a", role="writer", apply=True)
+            handle_lifecycle_event(fixture.repo, "shared", "precompact_auto",
+                                   mei_root=fixture.mei, writer_session_id="gui1-session-a")
+            debt = load_context(fixture.repo, "shared", mei_root=fixture.mei)
+            paths = [fixture.context_dir / name for name in ("project.json", "checkpointer.json")]
+            paths += [fixture.mei / "registry/continuity.yaml",
+                      fixture.mei / f"local/attachments/{fixture.repo_id}.json"]
+            before = {path: path.read_bytes() for path in paths}
+
+            def verify(state, recovery_action, *, role="writer"):
+                hint = handoff_status(fixture.repo, state, mei_root=fixture.mei)
+                self.assertEqual(hint["role"], role)
+                self.assertFalse(hint["can_save"])
+                self.assertFalse(hint["authorization_verified"])
+                self.assertEqual(hint["required_action"], "explicit_recovery_required")
+                self.assertEqual(hint["recovery_action"], recovery_action)
+                return hint
+
+            with patch.dict(os.environ, CODEX_HOME=str(homes[0]), CODEX_THREAD_ID="session-a"):
+                verify(debt, "current_writer_reviewed_reconcile_requires_explicit_authorization")
+                verify(dict(debt, status="conflict"), "inspect_conflict_and_reread")
+                verify(dict(debt, status="stale"), "repair_stable_refs_and_reread")
+                verify(dict(debt, project=dict(debt["project"], status="completed")),
+                       "completion_lifecycle_review_required")
+                verify(dict(debt, context_id="other"), "select_attached_context", role="observer")
+                with patch("continuity_adapters._attachment", return_value=None):
+                    verify(debt, "explicit_enrollment_required", role="observer")
+                with patch("continuity_adapters._attachment", return_value={"context_id": "shared", "writer": None}):
+                    verify(debt, "scoped_maintenance_recovery_required", role="observer")
+                with patch.dict(os.environ, CODEX_THREAD_ID="session-b"):
+                    expected = verify(debt, "source_writer_recovery_required", role="observer")
+                    child = subprocess.run([sys.executable, "-X", "utf8", "-B",
+                        str(ROOT / "scripts/check_continuity.py"), "--mei-root", str(fixture.mei),
+                        "--repo-root", str(fixture.repo), "--context-id", "shared"],
+                        capture_output=True, encoding="utf-8")
+                    self.assertEqual(child.returncode, 0, child.stderr)
+                    self.assertEqual(json.loads(child.stdout)["handoff"], expected)
+                with patch.dict(os.environ, CODEX_HOME=str(directory / "unknown-home")):
+                    verify(debt, "verify_current_identity", role="observer")
+            self.assertEqual({path: path.read_bytes() for path in paths}, before)
+
     def test_attach_and_transfer_never_read_or_write_host_config(self):
         from scripts.mei import _bytes as read_bytes
 

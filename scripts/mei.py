@@ -20,7 +20,7 @@ from _common import ROOT
 from check_continuity import (ContinuityError, MAX_INDEX_LINES, MAX_PROJECT_BYTES, _assert_no_reparse, _assert_private,
                               _check_context_id, _read_json, _read_yaml, _safe_relative_path, _validate, load_context, repo_id_for)
 from checkpoint_continuity import _context_lock, _replace_record, _record_bytes
-from continuity_adapters import _attachment, _native_sandbox_command, select_context
+from continuity_adapters import _attachment, _native_sandbox_command, handoff_status, select_context
 from create_continuity import create_context
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreCompact", "PostCompact", "Stop")
@@ -250,6 +250,7 @@ def status(root, repo):
         state = load_context(repo, selected["context_id"], mei_root=root)
         result["context"].update(state=state["status"], generation=state["checkpointer"]["generation"],
                                  project_sha256=state["project_sha256"])
+        result["handoff"] = handoff_status(repo, state, mei_root=root)
     return result
 
 

@@ -494,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = load_context(args.repo_root, args.context_id, mei_root=args.mei_root, remote=args.remote, host=args.host)
+        from continuity_adapters import handoff_status
+        result["handoff"] = handoff_status(args.repo_root.resolve(), result, mei_root=args.mei_root.resolve())
     except (ContinuityError, OSError) as exc:
         print(f"continuity check failed: {exc}", file=sys.stderr)
         return 1

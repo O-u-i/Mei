@@ -396,6 +396,35 @@ python -X utf8 -B $Entry save --repo-root . --context-id chosen-context --snapsh
 
 Only `handoff_saved` and `handoff_noop` are success. Reread stale/conflicting snapshots. Never handwrite `project.json`/`checkpointer.json` or call a task complete because a handoff was saved. A missing context requires an explicit maintenance request and entrypoint `create`; inspect `create_continuity.py --help` for expected index/hash requirements.
 
+### Cross-chat handoff is not a Markdown export
+
+The installed continuity Skill handles outgoing saves and receiving receipts.
+Its `references/handoff.md` covers current writers, foreign clean writers and
+blocked states. If the active session is not the enrolled writer, it must ask
+for a narrowly scoped clean transfer (unless already explicitly authorized),
+not impersonate the source or silently substitute a local Markdown file. The
+actual receiving session runs the reviewed maintenance attach plan with its
+own host/session and `--takeover --apply`, then saves its bounded receiving
+receipt and independently reads it back. Transfer alone does not update task
+semantics; dirty/recovery/unknown states never permit automatic takeover.
+
+`check` and `connect status` include read-only `handoff` workflow hints:
+registered writer, current environment-derived role, `can_save`, and
+`required_action`. These are diagnostic preconditions, not permission grants or
+proof of native identity. `latest_progress_verified` stays false: clean saved
+records can predate current work, especially when observer prompts never mark
+the context dirty. Verify actual task coverage against the reviewed payload
+and independent save readback. A supplemental Markdown report is not a saved
+checkpoint, and a blocked formal handoff must be reported as blocked.
+For recovery states, an additional `recovery_action` separates current-writer
+reviewed reconciliation from source-writer recovery, identity/enrollment checks,
+conflict investigation, stale references and completed-task lifecycle review.
+`can_save=false` means ordinary save is blocked, not that the installed
+`save --reconcile` route is broken. These hints never grant recovery authority;
+the Skill's explicit current-writer branch requires scoped authorization, fresh
+reviewed inputs and independent readback. An unavailable writer does not permit
+dirty takeover or an automatic abandoned-writer recovery.
+
 When a fresh snapshot reports reconciliation debt after automatic compact, inspect current task evidence and obtain explicit authorization before `save --reconcile`. The recovery hook never grants that authorization. This does not bypass stale/base-hash checks; a stale snapshot still requires rereading.
 
 Completion uses separate `complete_continuity.py checkpoint/export/retire/curator` operations and a selected context. Mutations require fresh snapshots. Export requires a human-reviewed redacted trajectory and is not automatic. The technical schema remains v0.1.0: Mei v2 accepts schema-validated v1 continuity release indexes without rewriting them.

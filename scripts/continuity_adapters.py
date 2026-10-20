@@ -464,6 +464,69 @@ def _sandboxed_lifecycle(args: argparse.Namespace, envelope: dict[str, Any], hos
     if not isinstance(wire, dict) or not isinstance(wire.get("continue"), bool):
         raise _LifecycleFailure("response")
     return wire
+
+
+def handoff_status(repo_root: Path, state: dict[str, Any], *, mei_root: Path) -> dict[str, Any]:
+    """Read-only workflow hints, not authorization or proof of task coverage."""
+    attached = _attachment(mei_root, repo_root)
+    selected = bool(attached and attached["context_id"] == state["context_id"])
+    writer = attached.get("writer") if selected else None
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").resolve()
+    host = _host_for_home(mei_root, home)
+    session = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
+    identity_known = host in {"gui1", "gui2"} and isinstance(session, str) and bool(
+        re.fullmatch(r"[A-Za-z0-9._-]{1,100}", session))
+    owns = bool(writer and identity_known and writer == {"host": host, "session_id": session})
+    status = state["status"]
+    if status in {"needs_reconcile", "conflict", "stale"}:
+        action = "explicit_recovery_required"
+    elif status in {"completed", "retired"}:
+        action = "terminal_context"
+    elif not attached:
+        action = "explicit_enrollment_required"
+    elif not selected:
+        action = "select_attached_context"
+    elif not identity_known:
+        action = "verify_current_identity"
+    elif owns:
+        action = "save_and_read_back"
+    elif status == "clean":
+        action = "explicit_clean_takeover" if writer else "explicit_writer_selection"
+    else:
+        action = "source_writer_save_required"
+    result = {
+        "role": "writer" if owns else "observer",
+        "registered_writer": writer, "current_host": host if host in {"gui1", "gui2"} else None,
+        "identity_source": "process_environment_and_configured_home",
+        "authorization_verified": False,
+        "can_save": owns and status in {"clean", "dirty"},
+        "required_action": action, "latest_progress_verified": False,
+        "coverage_note": "Clean validates saved records, not coverage of current work. "
+                         "Only an agent-reviewed payload, successful save and independent readback verify a handoff; "
+                         "Markdown alone is not a checkpoint.",
+    }
+    if action == "explicit_recovery_required":
+        if not attached:
+            recovery = "explicit_enrollment_required"
+        elif not selected:
+            recovery = "select_attached_context"
+        elif not identity_known:
+            recovery = "verify_current_identity"
+        elif not writer:
+            recovery = "scoped_maintenance_recovery_required"
+        elif state["project"]["status"] == "completed":
+            recovery = "completion_lifecycle_review_required"
+        elif status == "conflict":
+            recovery = "inspect_conflict_and_reread"
+        elif status == "stale":
+            recovery = "repair_stable_refs_and_reread"
+        else:
+            recovery = ("current_writer_reviewed_reconcile_requires_explicit_authorization"
+                        if owns else "source_writer_recovery_required")
+        result["recovery_action"] = recovery
+    return result
+
+
 def read_context(
     repo_root: str | Path,
     context_id: str,
